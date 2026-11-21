@@ -28,3 +28,9 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+- The diagram (src/components/panel) is plain SVG with inline presentation attributes and Arial, never Tailwind classes or CSS variables: the exported .svg must open standalone in CAD/Illustrator.
+- Panel options, defaults and design checks live in src/lib/panel.ts with tests in src/lib/panel.test.ts; UI components only render them.
+- Panel state is client-only (no backend); default circuit ids are fixed strings so SSR and hydration match.
+- PDF export uses window.print() with print styles in src/styles.css; everything except #print-area is print:hidden.
