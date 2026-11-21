@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
+import { fuseFor, mainSwitchCode, mcbCode, rcdCode } from "@/lib/hager";
 import {
   circuitCode,
-  circuitPoles,
   cableCores,
   conductorsLabel,
   phaseLabel,
@@ -33,10 +33,10 @@ const Y = {
   terminal: 72,
   ticksIn: 96,
   frameTop: 115,
-  fuse1: 130,
-  fuse2: 180,
-  sw1: 196,
-  sw2: 252,
+  sw1: 128,
+  sw2: 184,
+  fuse1: 200,
+  fuse2: 252,
   junction: 272,
   rcd1: 288,
   rcd2: 372,
@@ -49,8 +49,8 @@ const Y = {
   table: 560,
   row: 26,
   descRow: 140,
-  title: 822,
-  height: 930,
+  title: 848,
+  height: 956,
 };
 
 function clip(s: string, n: number): string {
@@ -75,7 +75,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
     const inCores = tri ? 5 : 3;
 
     const rowY = (r: number) => Y.table + Y.row * r;
-    const tableBottom = rowY(4) + Y.descRow;
+    const tableBottom = rowY(5) + Y.descRow;
 
     const tbW = 420;
     const tbX = W - 28 - tbW;
@@ -131,7 +131,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
           x1={mainX}
           y1={Y.terminal + 3.5}
           x2={mainX}
-          y2={Y.fuse1}
+          y2={Y.sw1}
           stroke={INK}
           strokeWidth={1.4}
         />
@@ -164,25 +164,36 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
           {tri ? "Τριφασικός" : "Μονοφασικός"} · {n} {n === 1 ? "γραμμή" : "γραμμές"}
         </Txt>
 
-        {/* Main fuse */}
-        <Fuse x={mainX} y1={Y.fuse1} y2={Y.fuse2} />
+        {/* Main switch-disconnector (first) */}
+        <SwitchSym x={mainX} y1={Y.sw1} y2={Y.sw2} kind="disconnector" />
+        <Txt x={labelX} y={Y.sw1 + 22} anchor="end" weight="bold">
+          Γενικός διακόπτης φορτίου
+        </Txt>
+        <Txt x={labelX} y={Y.sw1 + 35} anchor="end">
+          {tri ? "4P" : "2P"} {cfg.mainSwitch}A
+        </Txt>
+        <Txt x={labelX} y={Y.sw1 + 47} anchor="end" size={8} fill={GREY}>
+          Hager {mainSwitchCode(cfg)}
+        </Txt>
+        <line x1={mainX} y1={Y.sw2} x2={mainX} y2={Y.fuse1} stroke={INK} strokeWidth={1.4} />
+
+        {/* Main protection (second) */}
+        {cfg.protectionType === "fuse" ? (
+          <Fuse x={mainX} y1={Y.fuse1} y2={Y.fuse2} />
+        ) : (
+          <SwitchSym x={mainX} y1={Y.fuse1} y2={Y.fuse2} kind="breaker" />
+        )}
         <Txt x={labelX} y={Y.fuse1 + 22} anchor="end" weight="bold">
           Γενική ασφάλεια
         </Txt>
         <Txt x={labelX} y={Y.fuse1 + 35} anchor="end">
-          {tri ? "3" : "1"}x{cfg.mainFuse}A gG
+          {cfg.protectionType === "fuse"
+            ? `${tri ? "3x" : ""}Φυσίγγιο gG ${fuseFor(cfg.mainFuse).size} ${cfg.mainFuse}A`
+            : cfg.protectionType === "mcb"
+              ? `MCB ${tri ? "3P" : "2P"} C${cfg.mainFuse}`
+              : `MCCB 3P ${cfg.mainFuse}A 18kA`}
         </Txt>
-        <line x1={mainX} y1={Y.fuse2} x2={mainX} y2={Y.sw1} stroke={INK} strokeWidth={1.4} />
-
-        {/* Main switch */}
-        <SwitchSym x={mainX} y1={Y.sw1} y2={Y.sw2} kind="disconnector" />
-        <Txt x={labelX} y={Y.sw1 + 26} anchor="end" weight="bold">
-          Γενικός διακόπτης
-        </Txt>
-        <Txt x={labelX} y={Y.sw1 + 39} anchor="end">
-          {cfg.mainSwitch}A {tri ? "3P+N" : "1P+N"}
-        </Txt>
-        <line x1={mainX} y1={Y.sw2} x2={mainX} y2={Y.rcd1} stroke={INK} strokeWidth={1.4} />
+        <line x1={mainX} y1={Y.fuse2} x2={mainX} y2={Y.rcd1} stroke={INK} strokeWidth={1.4} />
 
         {/* Indicator lamps */}
         {cfg.indicatorLamp && (
@@ -234,7 +245,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
         )}
 
         {/* RCD */}
-        {cfg.rcdAmps ? (
+        {cfg.rcdEnabled ? (
           <g>
             <Rcd x={mainX} y1={Y.rcd1} y2={Y.rcd2} />
             <Txt x={labelX} y={Y.rcd1 + 30} anchor="end" weight="bold">
@@ -243,8 +254,8 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
             <Txt x={labelX} y={Y.rcd1 + 43} anchor="end">
               {rcdLabel(cfg)}
             </Txt>
-            <Txt x={labelX} y={Y.rcd1 + 56} anchor="end" fill={GREY} size={9}>
-              IΔn = {cfg.rcdSensitivity}mA
+            <Txt x={labelX} y={Y.rcd1 + 55} anchor="end" fill={GREY} size={8}>
+              Hager {rcdCode(cfg)}
             </Txt>
           </g>
         ) : (
@@ -302,7 +313,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
                 {c.amps}
               </Txt>
               <Txt x={x + 9} y={Y.mcb1 + 36} size={8} fill={GREY}>
-                {circuitPoles(c)}
+                {c.poles}
               </Txt>
               <line x1={x} y1={Y.mcb2} x2={x} y2={Y.arrow - 6} stroke={INK} strokeWidth={1.4} />
               <Ticks x={x} y={Y.ticksOut} count={cableCores(c.cable)} />
@@ -314,7 +325,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
         {/* Circuit table */}
         {n > 0 && (
           <g>
-            {[0, 1, 2, 3, 4].map((r) => (
+            {[0, 1, 2, 3, 4, 5].map((r) => (
               <line
                 key={r}
                 x1={TABLE_LEFT}
@@ -372,13 +383,16 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
                   </Txt>
                   <Txt x={x} y={rowY(1) + 17} anchor="middle">
                     {c.curve}
-                    {c.amps}A {circuitPoles(c)}
+                    {c.amps}A {c.poles}
                   </Txt>
-                  <Txt x={x} y={rowY(2) + 17} anchor="middle">
-                    NYM {c.cable}
+                  <Txt x={x} y={rowY(2) + 17} anchor="middle" size={9}>
+                    {mcbCode(c)}
                   </Txt>
                   <Txt x={x} y={rowY(3) + 17} anchor="middle">
-                    {phaseLabel(c.phase)}
+                    NYM {c.cable}
+                  </Txt>
+                  <Txt x={x} y={rowY(4) + 17} anchor="middle">
+                    {phaseLabel(c)}
                   </Txt>
                   <Txt x={x + 4} y={tableBottom - 8} rotate={-90} size={11}>
                     {clip(c.description || "—", 22)}
@@ -398,7 +412,7 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
             [
               ["fuse", "Ασφάλεια τήξεως"],
               ["switch", "Διακόπτης φορτίου"],
-              ["mcb", "Μικροαυτόματος"],
+              ["mcb", "MCB / MCCB"],
               ["rcd", "Ρελέ διαρροής"],
               ["lamp", "Ενδεικτική λυχνία"],
             ] as const

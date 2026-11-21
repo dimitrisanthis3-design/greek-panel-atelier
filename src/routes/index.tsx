@@ -1,27 +1,49 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, Download, Minus, Plus, Printer, Zap } from "lucide-react";
+import { fallback, zodValidator } from "@tanstack/zod-adapter";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileSpreadsheet,
+  Minus,
+  Plus,
+  Printer,
+  Zap,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
+import { BomTable } from "@/components/panel/BomTable";
 import { Diagram } from "@/components/panel/Diagram";
 import { PanelForm } from "@/components/panel/PanelForm";
+import { ProjectBar } from "@/components/panel/ProjectBar";
 import { Button } from "@/components/ui/button";
+import { buildBomCsv, downloadText, fileSlug } from "@/lib/csv";
 import { downloadSvg } from "@/lib/export-svg";
+import { buildBom, computeTotals } from "@/lib/hager";
 import { defaultConfig, runChecks, type PanelConfig } from "@/lib/panel";
+import { loadCurrent, loadPrices, saveCurrent, savePrices } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
+const TITLE = "Σχεδιαστής Μονογραμμικού & Υλικολογίου";
+
+const searchSchema = z.object({
+  tab: fallback(z.string(), "diagram").default("diagram"),
+});
+
 export const Route = createFileRoute("/")({
+  validateSearch: zodValidator(searchSchema),
   head: () => ({
     meta: [
-      { title: "Σχεδιαστής Μονογραμμικού Πίνακα" },
+      { title: TITLE },
       {
         name: "description",
         content:
-          "Ρυθμίστε παροχή, γενική προστασία, ρελέ διαρροής και γραμμές και δείτε ζωντανά το μονογραμμικό διάγραμμα σε SVG.",
+          "Ζωντανό μονογραμμικό διάγραμμα ηλεκτρικού πίνακα με σύμβολα IEC και αυτόματο υλικολόγιο με κωδικούς Hager, τιμές και εξαγωγή CSV.",
       },
-      { property: "og:title", content: "Σχεδιαστής Μονογραμμικού Πίνακα" },
+      { property: "og:title", content: TITLE },
       {
         property: "og:description",
-        content:
-          "Ζωντανό μονογραμμικό διάγραμμα ηλεκτρικού πίνακα με σύμβολα IEC, λήψη SVG και PDF.",
+        content: "Μονογραμμικό σε SVG/PDF και υλικολόγιο Hager με προσφορά σε Excel/CSV.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -33,15 +55,49 @@ export const Route = createFileRoute("/")({
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function Index() {
+  const { tab: rawTab } = Route.useSearch();
+  const tab = rawTab === "bom" ? "bom" : "diagram";
+  const navigate = Route.useNavigate();
   const [cfg, setCfg] = useState<PanelConfig>(defaultConfig);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [ready, setReady] = useState(false);
+  const [savedOk, setSavedOk] = useState(true);
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const svgRef = useRef<SVGSVGElement>(null);
-  const idRef = useRef(100);
+  const idRef = useRef(1000);
   const checks = useMemo(() => runChecks(cfg), [cfg]);
+  const bom = useMemo(() => buildBom(cfg), [cfg]);
+  const totals = useMemo(
+    () => computeTotals(bom, prices, cfg.customItems, cfg.vatPercent),
+    [bom, prices, cfg],
+  );
+
+  // Restore the last panel and price list from this device once the page is interactive.
+  useEffect(() => {
+    const stored = loadCurrent();
+    const today = new Date().toLocaleDateString("el-GR");
+    setCfg(
+      stored
+        ? stored.date
+          ? stored
+          : { ...stored, date: today }
+        : { ...defaultConfig(), date: today },
+    );
+    setPrices(loadPrices());
+    setReady(true);
+  }, []);
 
   useEffect(() => {
-    setCfg((c) => (c.date ? c : { ...c, date: new Date().toLocaleDateString("el-GR") }));
-  }, []);
+    if (ready) setSavedOk(saveCurrent(cfg));
+  }, [cfg, ready]);
+  useEffect(() => {
+    if (ready) savePrices(prices);
+  }, [prices, ready]);
+
+  const newId = () => {
+    idRef.current += 1;
+    return `n${Date.now().toString(36)}${idRef.current}`;
+  };
 
   const stepZoom = (dir: 1 | -1) => {
     const current = zoom === "fit" ? 1 : zoom;
@@ -51,79 +107,142 @@ function Index() {
     setZoom(next ?? 1);
   };
 
+  const setTab = (t: "diagram" | "bom") =>
+    navigate({ search: (prev) => ({ ...prev, tab: t }), replace: true });
+
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen print:h-auto print:block">
-      <header className="flex h-14 shrink-0 items-center gap-3 bg-primary px-5 text-primary-foreground print:hidden">
-        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-electric text-electric-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen print:block print:h-auto">
+      <header className="flex h-14 shrink-0 items-center gap-3 bg-primary px-4 text-primary-foreground print:hidden">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-electric text-electric-foreground">
           <Zap className="h-4.5 w-4.5" fill="currentColor" />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight">
-            Σχεδιαστής Μονογραμμικού Πίνακα
+            {TITLE}
           </h1>
           <p className="truncate text-[11px] text-primary-foreground/60">
-            Μονογραμμικά διαγράμματα ηλεκτρικών πινάκων · Σύμβολα IEC 60617
+            {ready
+              ? savedOk
+                ? "Αποθηκεύεται αυτόματα σε αυτή τη συσκευή"
+                : "Η αυτόματη αποθήκευση απέτυχε"
+              : "Σύμβολα IEC 60617 · Κωδικοί Hager"}
           </p>
         </div>
+        <ProjectBar
+          cfg={cfg}
+          prices={prices}
+          onLoad={setCfg}
+          onImportPrices={(p) => setPrices((prev) => ({ ...prev, ...p }))}
+        />
       </header>
 
       <main className="grid min-h-0 flex-1 lg:grid-cols-[400px_minmax(0,1fr)] print:block">
         <aside className="min-h-0 border-border bg-background lg:overflow-y-auto lg:border-r print:hidden">
-          <PanelForm
-            cfg={cfg}
-            onChange={setCfg}
-            newId={() => {
-              idRef.current += 1;
-              return `c${idRef.current}`;
-            }}
-          />
+          <PanelForm cfg={cfg} onChange={setCfg} newId={newId} />
         </aside>
 
         <section className="flex min-h-[70vh] min-w-0 flex-col lg:min-h-0">
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2.5 print:hidden">
-            <Button
-              onClick={() =>
-                svgRef.current && downloadSvg(svgRef.current, "monogrammiko-diagramma.svg")
-              }
-              variant="outline"
+            <div
+              role="tablist"
+              aria-label="Προβολή"
+              className="mr-2 flex rounded-md border border-input bg-muted p-0.5"
             >
-              <Download />
-              Λήψη SVG
-            </Button>
-            <Button onClick={() => window.print()}>
-              <Printer />
-              Εκτύπωση / Αποθήκευση PDF
-            </Button>
-            <div className="ml-auto flex items-center gap-1 rounded-md border border-input bg-background p-0.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                aria-label="Σμίκρυνση"
-                onClick={() => stepZoom(-1)}
-              >
-                <Minus />
-              </Button>
-              <button
-                type="button"
-                onClick={() => setZoom("fit")}
-                className={cn(
-                  "h-7 min-w-16 rounded px-2 font-mono text-xs",
-                  zoom === "fit" ? "bg-primary text-primary-foreground" : "hover:bg-accent",
-                )}
-              >
-                {zoom === "fit" ? "Προσαρμ." : `${Math.round(zoom * 100)}%`}
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                aria-label="Μεγέθυνση"
-                onClick={() => stepZoom(1)}
-              >
-                <Plus />
-              </Button>
+              {(
+                [
+                  ["diagram", "Μονογραμμικό"],
+                  ["bom", "Υλικολόγιο & Προσφορά"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  role="tab"
+                  type="button"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key)}
+                  className={cn(
+                    "rounded-[5px] px-3 py-1.5 text-[13px] font-medium transition-colors",
+                    tab === key
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+
+            {tab === "diagram" ? (
+              <>
+                <Button
+                  onClick={() =>
+                    svgRef.current &&
+                    downloadSvg(
+                      svgRef.current,
+                      `${fileSlug(cfg.project || cfg.panelName)}-monogrammiko.svg`,
+                    )
+                  }
+                  variant="outline"
+                >
+                  <Download />
+                  Λήψη SVG
+                </Button>
+                <Button onClick={() => window.print()}>
+                  <Printer />
+                  Εκτύπωση / Αποθήκευση PDF
+                </Button>
+                <div className="ml-auto flex items-center gap-1 rounded-md border border-input bg-background p-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    aria-label="Σμίκρυνση"
+                    onClick={() => stepZoom(-1)}
+                  >
+                    <Minus />
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setZoom("fit")}
+                    className={cn(
+                      "h-7 min-w-16 rounded px-2 font-mono text-xs",
+                      zoom === "fit" ? "bg-primary text-primary-foreground" : "hover:bg-accent",
+                    )}
+                  >
+                    {zoom === "fit" ? "Προσαρμ." : `${Math.round(zoom * 100)}%`}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    aria-label="Μεγέθυνση"
+                    onClick={() => stepZoom(1)}
+                  >
+                    <Plus />
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button
+                  className="bg-electric text-electric-foreground hover:bg-electric/85"
+                  onClick={() =>
+                    downloadText(
+                      buildBomCsv(cfg, bom, prices, totals),
+                      `ylikologio-${fileSlug(cfg.project || cfg.panelName)}.csv`,
+                      "text/csv;charset=utf-8",
+                    )
+                  }
+                >
+                  <FileSpreadsheet />
+                  Εξαγωγή σε Excel / CSV
+                </Button>
+                <Button variant="outline" onClick={() => window.print()}>
+                  <Printer />
+                  Εκτύπωση προσφοράς
+                </Button>
+              </>
+            )}
           </div>
 
           <div
@@ -161,15 +280,29 @@ function Index() {
           </div>
 
           <div className="bg-drafting min-h-0 flex-1 overflow-auto p-6 print:overflow-visible print:p-0">
-            <div
-              id="print-area"
-              className={cn(
-                "mx-auto bg-card shadow-sheet print:shadow-none",
-                zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
-              )}
-            >
-              <Diagram ref={svgRef} cfg={cfg} scale={zoom} />
-            </div>
+            {tab === "diagram" ? (
+              <div
+                id="print-area"
+                className={cn(
+                  "mx-auto bg-card shadow-sheet print:shadow-none",
+                  zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
+                )}
+              >
+                <Diagram ref={svgRef} cfg={cfg} scale={zoom} />
+              </div>
+            ) : (
+              <div id="print-area">
+                <BomTable
+                  cfg={cfg}
+                  lines={bom}
+                  prices={prices}
+                  totals={totals}
+                  onPrice={(code, p) => setPrices((prev) => ({ ...prev, [code]: p }))}
+                  onChange={setCfg}
+                  newId={newId}
+                />
+              </div>
+            )}
           </div>
         </section>
       </main>

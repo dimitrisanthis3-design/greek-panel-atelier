@@ -1,11 +1,16 @@
-// Domain model for the single-line panel designer: options, defaults and design checks.
+// Domain model for the single-line panel designer: options, defaults, design checks and parsing.
 
 export type Supply = "mono" | "tri";
 export type Curve = "B" | "C";
+export type Poles = "1P" | "1P+N" | "3P";
 export type Phase = "L" | "L1" | "L2" | "L3" | "L123";
+export type ProtectionType = "mcb" | "fuse" | "mccb";
+export type RcdPoles = "2P" | "4P";
+export type RcdType = "A" | "AC";
 
 export interface Circuit {
   id: string;
+  poles: Poles;
   amps: number;
   curve: Curve;
   description: string;
@@ -13,44 +18,61 @@ export interface Circuit {
   phase: Phase;
 }
 
+export interface CustomItem {
+  id: string;
+  code: string;
+  description: string;
+  qty: number;
+  unitPrice: number;
+}
+
 export interface PanelConfig {
   supply: Supply;
   mainSwitch: number;
+  protectionType: ProtectionType;
   mainFuse: number;
   indicatorLamp: boolean;
-  /** Rated current of the RCD in amperes; 0 means no RCD. */
+  rcdEnabled: boolean;
+  rcdPoles: RcdPoles;
   rcdAmps: number;
-  rcdSensitivity: number;
+  rcdType: RcdType;
   circuits: Circuit[];
+  customItems: CustomItem[];
+  vatPercent: number;
   project: string;
   panelName: string;
   designer: string;
   date: string;
 }
 
-export const MAIN_SWITCH_OPTIONS = [25, 40, 63, 80, 100];
-export const MAIN_FUSE_OPTIONS = [20, 25, 32, 35, 40, 50, 63];
-export const RCD_AMP_OPTIONS = [25, 40, 63];
-export const RCD_SENSITIVITY_OPTIONS = [30, 300];
+export const RCD_SENSITIVITY = 30;
+export const MAIN_SWITCH_OPTIONS = [40, 63, 80, 100];
+export const MAIN_FUSE_OPTIONS = [32, 40, 50, 63];
+export const RCD_AMP_OPTIONS = [40, 63];
 export const CIRCUIT_AMP_OPTIONS = [6, 10, 16, 20, 25, 32];
 export const CURVE_OPTIONS: Curve[] = ["B", "C"];
-
 export const CABLE_SECTIONS = ["1.5", "2.5", "4", "6", "10"];
 
-export function cableOptions(supply: Supply): string[] {
-  const cores = supply === "mono" ? ["3"] : ["3", "5"];
-  return cores.flatMap((c) => CABLE_SECTIONS.map((s) => `${c}x${s}`));
+export const PROTECTION_LABELS: Record<ProtectionType, string> = {
+  mcb: "Μικροαυτόματος (MCB)",
+  fuse: "Τηκόμενη ασφάλεια φυσιγγίου",
+  mccb: "Αυτόματος διακόπτης ισχύος (MCCB)",
+};
+
+export function polesFor(supply: Supply): Poles[] {
+  return supply === "mono" ? ["1P", "1P+N"] : ["1P", "1P+N", "3P"];
 }
 
-export const PHASE_OPTIONS: Record<Supply, { value: Phase; label: string }[]> = {
-  mono: [{ value: "L", label: "L" }],
-  tri: [
-    { value: "L1", label: "L1" },
-    { value: "L2", label: "L2" },
-    { value: "L3", label: "L3" },
-    { value: "L123", label: "3Φ (L1-L2-L3)" },
-  ],
-};
+export function cableOptions(c: Pick<Circuit, "poles">): string[] {
+  const cores = c.poles === "3P" ? "5" : "3";
+  return CABLE_SECTIONS.map((s) => `${cores}x${s}`);
+}
+
+export const PHASE_OPTIONS: { value: Phase; label: string }[] = [
+  { value: "L1", label: "L1" },
+  { value: "L2", label: "L2" },
+  { value: "L3", label: "L3" },
+];
 
 export const DESCRIPTION_SUGGESTIONS = [
   "Φωτισμός",
@@ -67,17 +89,12 @@ export const DESCRIPTION_SUGGESTIONS = [
   "Θυροτηλέφωνο",
 ];
 
-export function rcdPoles(supply: Supply): number {
-  return supply === "mono" ? 2 : 4;
-}
-
-export function rcdLabel(cfg: Pick<PanelConfig, "supply" | "rcdAmps" | "rcdSensitivity">): string {
-  if (!cfg.rcdAmps) return "Χωρίς";
-  return `${rcdPoles(cfg.supply)}x${cfg.rcdAmps}A ${cfg.rcdSensitivity}mA`;
+export function rcdLabel(cfg: Pick<PanelConfig, "rcdPoles" | "rcdAmps" | "rcdType">): string {
+  return `${cfg.rcdPoles} ${cfg.rcdAmps}A ${RCD_SENSITIVITY}mA Type ${cfg.rcdType}`;
 }
 
 export function supplyLabel(supply: Supply): string {
-  return supply === "mono" ? "1~ 230V 50Hz" : "3~ 400/230V 50Hz";
+  return supply === "mono" ? "1Φ 230V 50Hz" : "3Φ 400/230V 50Hz";
 }
 
 export function conductorsLabel(supply: Supply): string {
@@ -89,9 +106,8 @@ export function cableCores(cable: string): number {
   return Number.isFinite(n) ? n : 3;
 }
 
-export function cableSection(cable: string): number {
-  const s = Number.parseFloat(cable.split("x")[1] ?? "");
-  return Number.isFinite(s) ? s : 0;
+export function cableSectionOf(cable: string): string {
+  return cable.split("x")[1] ?? "2.5";
 }
 
 /** Highest breaker rating normally used on a copper cable of this section (mm²). */
@@ -104,34 +120,40 @@ export const MAX_BREAKER_FOR_SECTION: Record<string, number> = {
 };
 
 export function maxBreakerForCable(cable: string): number | undefined {
-  const section = cable.split("x")[1] ?? "";
-  return MAX_BREAKER_FOR_SECTION[section];
+  return MAX_BREAKER_FOR_SECTION[cableSectionOf(cable)];
 }
 
-export function circuitPoles(c: Pick<Circuit, "phase">): string {
-  return c.phase === "L123" ? "3P" : "1P";
-}
-
-export function phaseLabel(p: Phase): string {
-  return p === "L123" ? "L1-L2-L3" : p;
+export function phaseLabel(c: Pick<Circuit, "phase">): string {
+  return c.phase === "L123" ? "L1-L2-L3" : c.phase;
 }
 
 export function circuitCode(index: number): string {
   return `Γ${index + 1}`;
 }
 
+const TRI_PHASES: Phase[] = ["L1", "L2", "L3"];
+
+/** Apply a new pole count to a circuit, keeping its phase and cable consistent. */
+export function withPoles(c: Circuit, poles: Poles, supply: Supply, index: number): Circuit {
+  const section = cableSectionOf(c.cable);
+  if (poles === "3P") return { ...c, poles, phase: "L123", cable: `5x${section}` };
+  const phase: Phase =
+    supply === "mono"
+      ? "L"
+      : c.phase === "L123" || c.phase === "L"
+        ? (TRI_PHASES[index % 3] ?? "L1")
+        : c.phase;
+  return { ...c, poles, phase, cable: `3x${section}` };
+}
+
 /** Re-shape the panel when the supply type changes, keeping every circuit valid. */
 export function switchSupply(cfg: PanelConfig, supply: Supply): PanelConfig {
   if (cfg.supply === supply) return cfg;
-  const tri: Phase[] = ["L1", "L2", "L3"];
   const circuits = cfg.circuits.map((c, i) => {
-    if (supply === "mono") {
-      const section = c.cable.split("x")[1] ?? "2.5";
-      return { ...c, phase: "L" as Phase, cable: `3x${section}` };
-    }
-    return { ...c, phase: tri[i % 3] ?? "L1" };
+    if (supply === "mono") return withPoles(c, c.poles === "3P" ? "1P" : c.poles, "mono", i);
+    return c.poles === "3P" ? c : { ...c, phase: TRI_PHASES[i % 3] ?? "L1" };
   });
-  return { ...cfg, supply, circuits };
+  return { ...cfg, supply, rcdPoles: supply === "mono" ? "2P" : "4P", circuits };
 }
 
 export type CheckLevel = "error" | "warning";
@@ -145,17 +167,24 @@ export function runChecks(cfg: PanelConfig): Check[] {
   if (cfg.mainSwitch < cfg.mainFuse) {
     out.push({
       level: "error",
-      message: `Ο γενικός διακόπτης (${cfg.mainSwitch}A) είναι μικρότερος από τη γενική ασφάλεια (${cfg.mainFuse}A).`,
+      message: `Ο γενικός διακόπτης φορτίου (${cfg.mainSwitch}A) είναι μικρότερος από τη γενική ασφάλεια (${cfg.mainFuse}A).`,
     });
   }
-  if (cfg.rcdAmps && cfg.rcdAmps < cfg.mainFuse) {
-    out.push({
-      level: "warning",
-      message: `Το ρελέ διαρροής (${cfg.rcdAmps}A) είναι μικρότερο από τη γενική ασφάλεια (${cfg.mainFuse}A).`,
-    });
-  }
-  if (!cfg.rcdAmps) {
+  if (!cfg.rcdEnabled) {
     out.push({ level: "warning", message: "Ο πίνακας δεν έχει ρελέ διαρροής (RCD)." });
+  } else {
+    if (cfg.rcdAmps < cfg.mainFuse) {
+      out.push({
+        level: "warning",
+        message: `Το ρελέ διαρροής (${cfg.rcdAmps}A) είναι μικρότερο από τη γενική ασφάλεια (${cfg.mainFuse}A).`,
+      });
+    }
+    if (cfg.supply === "tri" && cfg.rcdPoles === "2P") {
+      out.push({
+        level: "error",
+        message: "Σε τριφασική παροχή το γενικό ρελέ διαρροής πρέπει να είναι 4P.",
+      });
+    }
   }
   if (cfg.circuits.length === 0) {
     out.push({ level: "warning", message: "Δεν έχουν προστεθεί γραμμές." });
@@ -175,10 +204,13 @@ export function runChecks(cfg: PanelConfig): Check[] {
         message: `${code}: η ασφάλεια ${c.amps}A ξεπερνά τη γενική ασφάλεια ${cfg.mainFuse}A.`,
       });
     }
-    if (c.phase === "L123" && cableCores(c.cable) < 5) {
+    if (c.poles === "3P" && cfg.supply === "mono") {
+      out.push({ level: "error", message: `${code}: τριπολική γραμμή σε μονοφασική παροχή.` });
+    }
+    if (c.poles === "3P" && cableCores(c.cable) < 5) {
       out.push({
         level: "error",
-        message: `${code}: τριφασική γραμμή χρειάζεται 5πολικό καλώδιο (π.χ. 5x${c.cable.split("x")[1] ?? "2.5"}).`,
+        message: `${code}: τριφασική γραμμή χρειάζεται 5πολικό καλώδιο (π.χ. 5x${cableSectionOf(c.cable)}).`,
       });
     }
   });
@@ -189,20 +221,132 @@ export function defaultConfig(): PanelConfig {
   return {
     supply: "mono",
     mainSwitch: 40,
-    mainFuse: 35,
+    protectionType: "fuse",
+    mainFuse: 40,
     indicatorLamp: true,
+    rcdEnabled: true,
+    rcdPoles: "2P",
     rcdAmps: 40,
-    rcdSensitivity: 30,
+    rcdType: "A",
+    vatPercent: 24,
     project: "Κατοικία",
     panelName: "Γενικός Πίνακας Κατοικίας",
     designer: "",
     date: "",
+    customItems: [],
     circuits: [
-      { id: "c1", amps: 10, curve: "B", description: "Φωτισμός", cable: "3x1.5", phase: "L" },
-      { id: "c2", amps: 16, curve: "C", description: "Ρευματοδότες", cable: "3x2.5", phase: "L" },
-      { id: "c3", amps: 25, curve: "C", description: "Κουζίνα", cable: "3x4", phase: "L" },
-      { id: "c4", amps: 20, curve: "C", description: "Θερμοσίφωνας", cable: "3x2.5", phase: "L" },
-      { id: "c5", amps: 16, curve: "C", description: "Κλιματιστικό", cable: "3x2.5", phase: "L" },
+      {
+        id: "c1",
+        poles: "1P",
+        amps: 10,
+        curve: "B",
+        description: "Φωτισμός",
+        cable: "3x1.5",
+        phase: "L",
+      },
+      {
+        id: "c2",
+        poles: "1P",
+        amps: 16,
+        curve: "C",
+        description: "Ρευματοδότες",
+        cable: "3x2.5",
+        phase: "L",
+      },
+      {
+        id: "c3",
+        poles: "1P+N",
+        amps: 25,
+        curve: "C",
+        description: "Κουζίνα",
+        cable: "3x4",
+        phase: "L",
+      },
+      {
+        id: "c4",
+        poles: "1P",
+        amps: 20,
+        curve: "C",
+        description: "Θερμοσίφωνας",
+        cable: "3x2.5",
+        phase: "L",
+      },
+      {
+        id: "c5",
+        poles: "1P",
+        amps: 16,
+        curve: "C",
+        description: "Κλιματιστικό",
+        cable: "3x2.5",
+        phase: "L",
+      },
     ],
+  };
+}
+
+// ---------- Parsing saved / imported data ----------
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function pick<T>(v: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(v as T) ? (v as T) : fallback;
+}
+function str(v: unknown, fallback: string): string {
+  return typeof v === "string" ? v : fallback;
+}
+function num(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/** Turn untrusted JSON (local storage or an imported file) into a valid PanelConfig, or null. */
+export function normalizeConfig(raw: unknown): PanelConfig | null {
+  if (!isRecord(raw)) return null;
+  const d = defaultConfig();
+  const supply = pick<Supply>(raw["supply"], ["mono", "tri"], d.supply);
+  const circuitsRaw = Array.isArray(raw["circuits"]) ? raw["circuits"] : d.circuits;
+  const circuits: Circuit[] = circuitsRaw.filter(isRecord).map((c, i) => {
+    const poles = pick<Poles>(c["poles"], polesFor(supply), "1P");
+    const base: Circuit = {
+      id: str(c["id"], `i${i + 1}`) || `i${i + 1}`,
+      poles,
+      amps: pick(c["amps"], CIRCUIT_AMP_OPTIONS, 16),
+      curve: pick<Curve>(c["curve"], CURVE_OPTIONS, "C"),
+      description: str(c["description"], ""),
+      cable: pick(c["cable"], cableOptions({ poles }), cableOptions({ poles })[1] ?? "3x2.5"),
+      phase: pick<Phase>(c["phase"], ["L", "L1", "L2", "L3", "L123"], "L"),
+    };
+    return withPoles(base, poles, supply, i);
+  });
+  const customRaw = Array.isArray(raw["customItems"]) ? raw["customItems"] : [];
+  const customItems: CustomItem[] = customRaw.filter(isRecord).map((c, i) => ({
+    id: str(c["id"], `x${i + 1}`) || `x${i + 1}`,
+    code: str(c["code"], ""),
+    description: str(c["description"], ""),
+    qty: Math.max(0, num(c["qty"], 1)),
+    unitPrice: Math.max(0, num(c["unitPrice"], 0)),
+  }));
+  return {
+    supply,
+    mainSwitch: pick(raw["mainSwitch"], MAIN_SWITCH_OPTIONS, d.mainSwitch),
+    protectionType: pick<ProtectionType>(
+      raw["protectionType"],
+      ["mcb", "fuse", "mccb"],
+      d.protectionType,
+    ),
+    mainFuse: pick(raw["mainFuse"], MAIN_FUSE_OPTIONS, d.mainFuse),
+    indicatorLamp:
+      typeof raw["indicatorLamp"] === "boolean" ? raw["indicatorLamp"] : d.indicatorLamp,
+    rcdEnabled: typeof raw["rcdEnabled"] === "boolean" ? raw["rcdEnabled"] : d.rcdEnabled,
+    rcdPoles: pick<RcdPoles>(raw["rcdPoles"], ["2P", "4P"], supply === "mono" ? "2P" : "4P"),
+    rcdAmps: pick(raw["rcdAmps"], RCD_AMP_OPTIONS, d.rcdAmps),
+    rcdType: pick<RcdType>(raw["rcdType"], ["A", "AC"], d.rcdType),
+    vatPercent: Math.max(0, Math.min(100, num(raw["vatPercent"], d.vatPercent))),
+    project: str(raw["project"], d.project),
+    panelName: str(raw["panelName"], d.panelName),
+    designer: str(raw["designer"], d.designer),
+    date: str(raw["date"], d.date),
+    circuits,
+    customItems,
   };
 }

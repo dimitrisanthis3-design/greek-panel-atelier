@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -81,16 +82,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Σχεδιαστής Μονογραμμικού Πίνακα" },
+      { title: "Σχεδιαστής Μονογραμμικού & Υλικολογίου" },
       {
         name: "description",
-        content: "Σχεδιάστε ζωντανά μονογραμμικά διαγράμματα ηλεκτρικών πινάκων με σύμβολα IEC.",
+        content:
+          "Μονογραμμικά διαγράμματα ηλεκτρικών πινάκων με σύμβολα IEC και υλικολόγιο με κωδικούς Hager.",
       },
-      { name: "author", content: "Σχεδιαστής Μονογραμμικού Πίνακα" },
-      { property: "og:title", content: "Σχεδιαστής Μονογραμμικού Πίνακα" },
+      { name: "author", content: "Σχεδιαστής Μονογραμμικού & Υλικολογίου" },
+      { property: "og:title", content: "Σχεδιαστής Μονογραμμικού & Υλικολογίου" },
       {
         property: "og:description",
-        content: "Σχεδιάστε ζωντανά μονογραμμικά διαγράμματα ηλεκτρικών πινάκων με σύμβολα IEC.",
+        content:
+          "Μονογραμμικά διαγράμματα ηλεκτρικών πινάκων με σύμβολα IEC και υλικολόγιο με κωδικούς Hager.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -137,6 +140,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <Toaster position="bottom-right" richColors />
     </QueryClientProvider>
   );
 }

@@ -19,14 +19,19 @@ import {
   MAIN_FUSE_OPTIONS,
   MAIN_SWITCH_OPTIONS,
   PHASE_OPTIONS,
+  PROTECTION_LABELS,
   RCD_AMP_OPTIONS,
-  RCD_SENSITIVITY_OPTIONS,
   cableOptions,
   circuitCode,
-  rcdLabel,
+  polesFor,
   switchSupply,
+  withPoles,
   type Circuit,
   type PanelConfig,
+  type Poles,
+  type ProtectionType,
+  type RcdPoles,
+  type RcdType,
   type Supply,
 } from "@/lib/panel";
 
@@ -36,26 +41,13 @@ interface Props {
   newId: () => string;
 }
 
-function Section({
-  n,
-  title,
-  children,
-  action,
-}: {
-  n: string;
-  title: string;
-  children: ReactNode;
-  action?: ReactNode;
-}) {
+function Section({ n, title, children }: { n: string; title: string; children: ReactNode }) {
   return (
     <section className="border-b border-border px-5 py-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="flex items-baseline gap-2.5 text-sm font-semibold tracking-tight text-foreground">
-          <span className="font-mono text-xs text-electric-ink">{n}</span>
-          {title}
-        </h2>
-        {action}
-      </div>
+      <h2 className="mb-4 flex items-baseline gap-2.5 text-sm font-semibold tracking-tight text-foreground">
+        <span className="font-mono text-xs text-electric-ink">{n}</span>
+        {title}
+      </h2>
       <div className="space-y-4">{children}</div>
     </section>
   );
@@ -87,15 +79,17 @@ function Pick({
   value,
   options,
   onChange,
+  label,
 }: {
   id?: string;
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  label?: string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id} className="bg-card font-mono text-[13px]">
+      <SelectTrigger id={id} aria-label={label} className="bg-card font-mono text-[13px]">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -147,6 +141,32 @@ function Segmented<T extends string>({
   );
 }
 
+function ToggleRow({
+  id,
+  label,
+  checked,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-input bg-card px-3 py-2.5">
+      <Label htmlFor={id} className="text-[13px] font-medium">
+        {label}
+      </Label>
+      <div className="flex items-center gap-2">
+        <span className="w-7 text-right text-xs text-muted-foreground">
+          {checked ? "Ναι" : "Όχι"}
+        </span>
+        <Switch id={id} checked={checked} onCheckedChange={onChange} />
+      </div>
+    </div>
+  );
+}
+
 const amps = (list: number[]) => list.map((a) => ({ value: String(a), label: `${a}A` }));
 
 export function PanelForm({ cfg, onChange, newId }: Props) {
@@ -158,45 +178,31 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
 
   const move = (index: number, dir: -1 | 1) => {
     const next = [...cfg.circuits];
-    const target = index + dir;
     const a = next[index];
-    const b = next[target];
+    const b = next[index + dir];
     if (!a || !b) return;
     next[index] = b;
-    next[target] = a;
+    next[index + dir] = a;
     set({ circuits: next });
   };
 
   const addCircuit = () => {
-    const phases = ["L1", "L2", "L3"] as const;
-    const c: Circuit = {
+    const base: Circuit = {
       id: newId(),
+      poles: "1P",
       amps: 16,
       curve: "C",
       description: "",
       cable: "3x2.5",
-      phase: tri ? (phases[cfg.circuits.length % 3] ?? "L1") : "L",
+      phase: "L",
     };
-    set({ circuits: [...cfg.circuits, c] });
+    set({ circuits: [...cfg.circuits, withPoles(base, "1P", cfg.supply, cfg.circuits.length)] });
   };
-
-  const rcdValue = cfg.rcdAmps ? `${cfg.rcdAmps}-${cfg.rcdSensitivity}` : "none";
-  const rcdOptions = [
-    { value: "none", label: "Χωρίς ρελέ διαρροής" },
-    ...RCD_SENSITIVITY_OPTIONS.flatMap((s) =>
-      RCD_AMP_OPTIONS.map((a) => ({
-        value: `${a}-${s}`,
-        label: rcdLabel({ supply: cfg.supply, rcdAmps: a, rcdSensitivity: s }),
-      })),
-    ),
-  ];
-
-  const cables = cableOptions(cfg.supply).map((c) => ({ value: c, label: `${c} mm²` }));
 
   return (
     <div className="pb-10">
-      <Section n="01" title="Στοιχεία σχεδίου">
-        <Field label="Έργο" htmlFor="project">
+      <Section n="00" title="Στοιχεία έργου">
+        <Field label="Πελάτης / Έργο" htmlFor="project">
           <Input
             id="project"
             value={cfg.project}
@@ -233,69 +239,104 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
         </div>
       </Section>
 
-      <Section n="02" title="Παροχή & γενική προστασία">
-        <Field label="Τύπος παροχής">
-          <Segmented<Supply>
-            label="Τύπος παροχής"
-            value={cfg.supply}
-            onChange={(s) => onChange(switchSupply(cfg, s))}
-            options={[
-              { value: "mono", label: "Μονοφασικός" },
-              { value: "tri", label: "Τριφασικός" },
-            ]}
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Γενικός διακόπτης" htmlFor="mainSwitch">
-            <Pick
-              id="mainSwitch"
-              value={String(cfg.mainSwitch)}
-              options={amps(MAIN_SWITCH_OPTIONS)}
-              onChange={(v) => set({ mainSwitch: Number(v) })}
-            />
-          </Field>
-          <Field label="Γενική ασφάλεια" htmlFor="mainFuse">
-            <Pick
-              id="mainFuse"
-              value={String(cfg.mainFuse)}
-              options={amps(MAIN_FUSE_OPTIONS)}
-              onChange={(v) => set({ mainFuse: Number(v) })}
-            />
-          </Field>
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-md border border-input bg-card px-3 py-2.5">
-          <Label htmlFor="lamp" className="text-[13px] font-medium">
-            Ενδεικτική λυχνία{tri ? " (L1-L2-L3)" : ""}
-          </Label>
-          <div className="flex items-center gap-2">
-            <span className="w-7 text-right text-xs text-muted-foreground">
-              {cfg.indicatorLamp ? "Ναι" : "Όχι"}
-            </span>
-            <Switch
-              id="lamp"
-              checked={cfg.indicatorLamp}
-              onCheckedChange={(v) => set({ indicatorLamp: v })}
-            />
-          </div>
-        </div>
+      <Section n="01" title="Τύπος παροχής">
+        <Segmented<Supply>
+          label="Τύπος παροχής"
+          value={cfg.supply}
+          onChange={(s) => onChange(switchSupply(cfg, s))}
+          options={[
+            { value: "mono", label: "Μονοφασικός (1Φ)" },
+            { value: "tri", label: "Τριφασικός (3Φ)" },
+          ]}
+        />
       </Section>
 
-      <Section n="03" title="Ρελέ διαρροής (RCD)">
-        <Field label={tri ? "Τετραπολικό ρελέ" : "Διπολικό ρελέ"} htmlFor="rcd">
+      <Section n="02" title="Γενικός διακόπτης φορτίου">
+        <Field label={`Ονομαστικό ρεύμα (${tri ? "4P" : "2P"})`} htmlFor="mainSwitch">
           <Pick
-            id="rcd"
-            value={rcdValue}
-            options={rcdOptions}
-            onChange={(v) => {
-              if (v === "none") return set({ rcdAmps: 0 });
-              const [a, s] = v.split("-");
-              set({ rcdAmps: Number(a), rcdSensitivity: Number(s) });
-            }}
+            id="mainSwitch"
+            value={String(cfg.mainSwitch)}
+            options={amps(MAIN_SWITCH_OPTIONS)}
+            onChange={(v) => set({ mainSwitch: Number(v) })}
           />
         </Field>
       </Section>
 
-      <Section n="04" title={`Γραμμές (${cfg.circuits.length})`}>
+      <Section n="03" title="Γενική ασφάλεια">
+        <Field label="Τύπος" htmlFor="protectionType">
+          <Pick
+            id="protectionType"
+            value={cfg.protectionType}
+            options={(Object.keys(PROTECTION_LABELS) as ProtectionType[]).map((k) => ({
+              value: k,
+              label: PROTECTION_LABELS[k],
+            }))}
+            onChange={(v) => set({ protectionType: v as ProtectionType })}
+          />
+        </Field>
+        <Field label="Αμπέρ" htmlFor="mainFuse">
+          <Pick
+            id="mainFuse"
+            value={String(cfg.mainFuse)}
+            options={amps(MAIN_FUSE_OPTIONS)}
+            onChange={(v) => set({ mainFuse: Number(v) })}
+          />
+        </Field>
+      </Section>
+
+      <Section n="04" title="Ενδεικτική λυχνία ράγας">
+        <ToggleRow
+          id="lamp"
+          label={`Μετά τη γενική ασφάλεια${tri ? " (3 τεμ. L1-L2-L3)" : ""}`}
+          checked={cfg.indicatorLamp}
+          onChange={(v) => set({ indicatorLamp: v })}
+        />
+      </Section>
+
+      <Section n="05" title="Ρελέ διαρροής (RCD)">
+        <ToggleRow
+          id="rcd"
+          label="Γενικό ρελέ διαρροής 30mA"
+          checked={cfg.rcdEnabled}
+          onChange={(v) => set({ rcdEnabled: v })}
+        />
+        {cfg.rcdEnabled && (
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Πόλοι">
+              <Segmented<RcdPoles>
+                label="Πόλοι ρελέ"
+                value={cfg.rcdPoles}
+                onChange={(v) => set({ rcdPoles: v })}
+                options={[
+                  { value: "2P", label: "2P" },
+                  { value: "4P", label: "4P" },
+                ]}
+              />
+            </Field>
+            <Field label="Αμπέρ">
+              <Pick
+                label="Αμπέρ ρελέ"
+                value={String(cfg.rcdAmps)}
+                options={amps(RCD_AMP_OPTIONS)}
+                onChange={(v) => set({ rcdAmps: Number(v) })}
+              />
+            </Field>
+            <Field label="Τύπος">
+              <Segmented<RcdType>
+                label="Τύπος ρελέ"
+                value={cfg.rcdType}
+                onChange={(v) => set({ rcdType: v })}
+                options={[
+                  { value: "A", label: "A" },
+                  { value: "AC", label: "AC" },
+                ]}
+              />
+            </Field>
+          </div>
+        )}
+      </Section>
+
+      <Section n="06" title={`Μπάρα διανομής & αναχωρήσεις (${cfg.circuits.length})`}>
         <datalist id="desc-suggestions">
           {DESCRIPTION_SUGGESTIONS.map((d) => (
             <option key={d} value={d} />
@@ -365,14 +406,24 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
                   </Button>
                 </div>
               </div>
-              <div
-                className={cn(
-                  "grid gap-2",
-                  tri ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-2" : "grid-cols-3",
-                )}
-              >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
+                <Field label="Πόλοι">
+                  <Pick
+                    label={`Πόλοι ${circuitCode(i)}`}
+                    value={c.poles}
+                    options={polesFor(cfg.supply).map((p) => ({ value: p, label: p }))}
+                    onChange={(v) =>
+                      set({
+                        circuits: cfg.circuits.map((x) =>
+                          x.id === c.id ? withPoles(x, v as Poles, cfg.supply, i) : x,
+                        ),
+                      })
+                    }
+                  />
+                </Field>
                 <Field label="Αμπέρ">
                   <Pick
+                    label={`Αμπέρ ${circuitCode(i)}`}
                     value={String(c.amps)}
                     options={amps(CIRCUIT_AMP_OPTIONS)}
                     onChange={(v) => updateCircuit(c.id, { amps: Number(v) })}
@@ -388,24 +439,19 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
                 </Field>
                 <Field label="Καλώδιο">
                   <Pick
+                    label={`Καλώδιο ${circuitCode(i)}`}
                     value={c.cable}
-                    options={cables}
+                    options={cableOptions(c).map((k) => ({ value: k, label: `${k} mm²` }))}
                     onChange={(v) => updateCircuit(c.id, { cable: v })}
                   />
                 </Field>
-                {tri && (
+                {tri && c.poles !== "3P" && (
                   <Field label="Φάση">
                     <Pick
+                      label={`Φάση ${circuitCode(i)}`}
                       value={c.phase}
-                      options={PHASE_OPTIONS.tri}
-                      onChange={(v) => {
-                        const phase = v as Circuit["phase"];
-                        const section = c.cable.split("x")[1] ?? "2.5";
-                        updateCircuit(
-                          c.id,
-                          phase === "L123" ? { phase, cable: `5x${section}` } : { phase },
-                        );
-                      }}
+                      options={PHASE_OPTIONS}
+                      onChange={(v) => updateCircuit(c.id, { phase: v as Circuit["phase"] })}
                     />
                   </Field>
                 )}
