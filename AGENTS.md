@@ -34,3 +34,7 @@ use the editor.
 - Panel options, defaults and design checks live in src/lib/panel.ts with tests in src/lib/panel.test.ts; UI components only render them.
 - Panel state is client-only (no backend); default circuit ids are fixed strings so SSR and hydration match.
 - PDF export uses window.print() with print styles in src/styles.css; everything except #print-area is print:hidden.
+- Hager catalogue references and BOM quantities live in src/lib/hager.ts (tested in src/lib/hager.test.ts); the diagram and BOM tab both read codes from there so they never disagree.
+- Browser storage (current panel, saved projects, price list per code) goes through src/lib/storage.ts and every read passes normalizeConfig, because stored or imported JSON is untrusted.
+- The active tab lives in the URL search param `tab` (diagram | bom) so it survives reloads and links.
+- CSV export uses semicolons, decimal commas and a UTF-8 BOM so Greek Excel opens it correctly.

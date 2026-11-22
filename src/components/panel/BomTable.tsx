@@ -106,7 +106,7 @@ export function BomTable({ cfg, lines, prices, totals, onPrice, onChange, newId 
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-border bg-muted text-left text-xs text-muted-foreground">
-              <th className="w-10 px-3 py-2 font-medium">Α/Α</th>
+              <th className="w-12 whitespace-nowrap px-3 py-2 font-medium">Α/Α</th>
               <th className="w-32 px-3 py-2 font-medium">Κωδικός</th>
               <th className="px-3 py-2 font-medium">Περιγραφή</th>
               <th className="w-20 px-3 py-2 text-right font-medium">Τεμ.</th>

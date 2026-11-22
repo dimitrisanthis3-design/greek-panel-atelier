@@ -363,11 +363,11 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
                 strokeWidth={k === 0 || k === n ? 1.2 : 0.6}
               />
             ))}
-            {["Κύκλωμα", "Προστασία", "Καλώδιο (mm²)", "Φάση", "Περιγραφή"].map((h, r) => (
+            {["Κύκλωμα", "Προστασία", "Κωδ. Hager", "Καλώδιο (mm²)", "Φάση", "Περιγραφή"].map((h, r) => (
               <Txt
                 key={h}
                 x={TABLE_LEFT + 8}
-                y={rowY(r) + (r === 4 ? 20 : 17)}
+                y={rowY(r) + (r === 5 ? 20 : 17)}
                 size={9}
                 weight="bold"
               >
