@@ -119,3 +119,20 @@ export function parseProjectFile(
   if (!wrapped && !("circuits" in r) && !("supply" in r)) return null;
   return { config, prices: wrapped ? parsePrices(r["prices"]) : {} };
 }
+
+// The user's own Google Gemini key, kept only on this device when they choose to.
+const GEMINI_KEY = "msy:gemini-key";
+export function loadGeminiKey(): string {
+  const v = read(GEMINI_KEY);
+  return typeof v === "string" ? v : "";
+}
+export function saveGeminiKey(key: string): void {
+  if (key.trim()) write(GEMINI_KEY, key.trim());
+  else {
+    try {
+      window.localStorage.removeItem(GEMINI_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}

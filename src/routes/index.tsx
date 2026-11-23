@@ -16,6 +16,7 @@ import { BomTable } from "@/components/panel/BomTable";
 import { Diagram } from "@/components/panel/Diagram";
 import { PanelForm } from "@/components/panel/PanelForm";
 import { ProjectBar } from "@/components/panel/ProjectBar";
+import { ScanDialog } from "@/components/panel/ScanDialog";
 import { Button } from "@/components/ui/button";
 import { buildBomCsv, downloadText, fileSlug } from "@/lib/csv";
 import { downloadSvg } from "@/lib/export-svg";
@@ -138,6 +139,9 @@ function Index() {
 
       <main className="grid min-h-0 flex-1 lg:grid-cols-[400px_minmax(0,1fr)] print:block">
         <aside className="min-h-0 border-border bg-background lg:overflow-y-auto lg:border-r print:hidden">
+          <div className="border-b border-border px-5 py-4">
+            <ScanDialog cfg={cfg} onApply={setCfg} newId={newId} />
+          </div>
           <PanelForm cfg={cfg} onChange={setCfg} newId={newId} />
         </aside>
 

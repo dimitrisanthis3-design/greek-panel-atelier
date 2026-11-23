@@ -38,3 +38,5 @@ use the editor.
 - Browser storage (current panel, saved projects, price list per code) goes through src/lib/storage.ts and every read passes normalizeConfig, because stored or imported JSON is untrusted.
 - The active tab lives in the URL search param `tab` (diagram | bom) so it survives reloads and links.
 - CSV export uses semicolons, decimal commas and a UTF-8 BOM so Greek Excel opens it correctly.
+- Photo/sketch scan: the user's own Gemini key is typed in the app (kept on-device via storage.ts) and sent to the server function in src/lib/scan.functions.ts, which calls Gemini from src/lib/scan.server.ts; the user chose this over the built-in AI gateway.
+- Scan answers are untrusted: src/lib/scan.ts snaps every value to the options in panel.ts and passes the result through normalizeConfig (tested in src/lib/scan.test.ts); unread fields keep current values.
