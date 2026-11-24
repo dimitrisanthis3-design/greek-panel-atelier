@@ -111,7 +111,7 @@ function Index() {
     setZoom(next ?? 1);
   };
 
-  const setTab = (t: "diagram" | "bom" | "yde") =>
+  const setTab = (t: "diagram" | "bom" | "yde" | "plan") =>
     navigate({ search: (prev) => ({ ...prev, tab: t }), replace: true });
 
   const applyTemplate = (templateId: string) => {
