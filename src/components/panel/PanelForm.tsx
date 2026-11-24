@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Mic, MicOff, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   CIRCUIT_AMP_OPTIONS,
+  CABLE_SECTIONS,
   CURVE_OPTIONS,
   DESCRIPTION_SUGGESTIONS,
   MAIN_FUSE_OPTIONS,
@@ -34,6 +36,11 @@ import {
   type RcdType,
   type Supply,
 } from "@/lib/panel";
+import {
+  useVoiceInput,
+  parseVoiceCircuit,
+  parseVoiceProject,
+} from "@/hooks/use-voice-input";
 
 interface Props {
   cfg: PanelConfig;
@@ -169,9 +176,78 @@ function ToggleRow({
 
 const amps = (list: number[]) => list.map((a) => ({ value: String(a), label: `${a}A` }));
 
+function VoiceButton({
+  listening,
+  supported,
+  onClick,
+  label,
+}: {
+  listening: boolean;
+  supported: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  if (!supported) return null;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      className={cn(
+        "h-8 w-8 shrink-0",
+        listening && "border-destructive text-destructive animate-pulse",
+      )}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {listening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+    </Button>
+  );
+}
+
 export function PanelForm({ cfg, onChange, newId }: Props) {
   const set = (patch: Partial<PanelConfig>) => onChange({ ...cfg, ...patch });
   const tri = cfg.supply === "tri";
+
+  // Voice input for project details
+  const projectVoice = useVoiceInput({
+    onResult: (text) => {
+      const parsed = parseVoiceProject(text);
+      const patch: Partial<PanelConfig> = {};
+      if (parsed.project) patch.project = parsed.project;
+      if (parsed.panelName) patch.panelName = parsed.panelName;
+      if (parsed.designer) patch.designer = parsed.designer;
+      if (Object.keys(patch).length > 0) {
+        onChange({ ...cfg, ...patch });
+        toast.success(`Φωνητική εντολή: ${text}`);
+      } else {
+        toast.info(`Ακούστηκε: ${text}`);
+      }
+    },
+  });
+
+  // Voice input for adding a circuit by speech
+  const circuitVoice = useVoiceInput({
+    onResult: (text) => {
+      const parsed = parseVoiceCircuit(text);
+      const base: Circuit = {
+        id: newId(),
+        poles: parsed.poles ? (parsed.poles as Poles) : "1P",
+        amps: parsed.amps ?? 16,
+        curve: (parsed.curve as Circuit["curve"]) ?? "C",
+        description: parsed.description ?? "",
+        cable: parsed.cable
+          ? `${parsed.poles === "3P" ? "5" : "3"}x${parsed.cable}`
+          : "3x2.5",
+        phase: parsed.poles === "3P" ? "L123" : tri ? "L1" : "L",
+      };
+      const circuit = withPoles(base, base.poles, cfg.supply, cfg.circuits.length);
+      onChange({ ...cfg, circuits: [...cfg.circuits, circuit] });
+      toast.success(
+        `Προστέθηκε γραμμή: ${circuit.description || "—"} ${circuit.amps}A ${circuit.cable}`,
+      );
+    },
+  });
 
   const updateCircuit = (id: string, patch: Partial<Circuit>) =>
     set({ circuits: cfg.circuits.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
@@ -202,6 +278,17 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
   return (
     <div className="pb-10">
       <Section n="00" title="Στοιχεία έργου">
+        <div className="flex items-center justify-end gap-1.5">
+          <VoiceButton
+            listening={projectVoice.listening}
+            supported={projectVoice.supported}
+            onClick={projectVoice.listening ? projectVoice.stop : projectVoice.start}
+            label="Φωνητική καταχώρηση στοιχείων έργου"
+          />
+          {projectVoice.listening && (
+            <span className="text-xs text-destructive animate-pulse">Μιλήστε…</span>
+          )}
+        </div>
         <Field label="Πελάτης / Έργο" htmlFor="project">
           <Input
             id="project"
@@ -459,15 +546,31 @@ export function PanelForm({ cfg, onChange, newId }: Props) {
             </li>
           ))}
         </ol>
-        <Button
-          type="button"
-          onClick={addCircuit}
-          variant="outline"
-          className="w-full border-dashed border-electric bg-electric-soft font-semibold text-foreground hover:bg-electric/30"
-        >
-          <Plus className="h-4 w-4" />
-          Προσθήκη Γραμμής
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            onClick={addCircuit}
+            variant="outline"
+            className="flex-1 border-dashed border-electric bg-electric-soft font-semibold text-foreground hover:bg-electric/30"
+          >
+            <Plus className="h-4 w-4" />
+            Προσθήκη Γραμμής
+          </Button>
+          <VoiceButton
+            listening={circuitVoice.listening}
+            supported={circuitVoice.supported}
+            onClick={circuitVoice.listening ? circuitVoice.stop : circuitVoice.start}
+            label="Φωνητική προσθήκη γραμμής"
+          />
+        </div>
+        {circuitVoice.listening && (
+          <p className="text-center text-xs text-destructive animate-pulse">
+            Μιλήστε… π.χ. «Γραμμή κουζίνα 25 αμπέρ καλώδιο 4άρι»
+          </p>
+        )}
+        {circuitVoice.error && (
+          <p className="text-center text-xs text-destructive">{circuitVoice.error}</p>
+        )}
       </Section>
     </div>
   );

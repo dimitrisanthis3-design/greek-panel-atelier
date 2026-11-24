@@ -2,6 +2,7 @@ import {
   FileDown,
   FileUp,
   FolderOpen,
+  LayoutTemplate,
   MoreHorizontal,
   Save,
   Trash2,
@@ -29,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { downloadText, fileSlug } from "@/lib/csv";
 import { defaultConfig, type PanelConfig } from "@/lib/panel";
+import { TEMPLATES } from "@/lib/templates";
 import {
   deleteProject,
   listProjects,
@@ -61,6 +63,7 @@ const when = (iso: string) => {
 export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [loadOpen, setLoadOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [name, setName] = useState("");
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -85,6 +88,15 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
 
   return (
     <div className="flex items-center gap-1.5">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+        onClick={() => setTemplatesOpen(true)}
+      >
+        <LayoutTemplate />
+        <span className="hidden sm:inline">Πρότυπα</span>
+      </Button>
       <Button
         size="sm"
         className="bg-electric text-electric-foreground hover:bg-electric/85"
@@ -262,6 +274,42 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
               ))}
             </ul>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={templatesOpen} onOpenChange={setTemplatesOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Έτοιμα Πρότυπα Έργων</DialogTitle>
+            <DialogDescription>
+              Επιλέξτε ένα έτοιμο πρότυπο για γρήγονη εκκίνηση. Θα αντικαταστήσει τον τρέχοντα πίνακα.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {TEMPLATES.map((t) => {
+              const preview = t.build();
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="w-full rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-electric hover:bg-electric-soft/50"
+                    onClick={() => {
+                      onLoad({ ...preview, date: new Date().toLocaleDateString("el-GR") });
+                      setTemplatesOpen(false);
+                      toast.success(`Φορτώθηκε το πρότυπο «${t.name}».`);
+                    }}
+                  >
+                    <p className="text-sm font-semibold">{t.name}</p>
+                    <p className="text-xs text-muted-foreground">{t.description}</p>
+                    <p className="mt-1 font-mono text-[11px] text-electric-ink">
+                      {preview.supply === "mono" ? "1Φ" : "3Φ"} · {preview.circuits.length} γραμμές ·{" "}
+                      {preview.mainFuse}A
+                    </p>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </DialogContent>
       </Dialog>
     </div>
