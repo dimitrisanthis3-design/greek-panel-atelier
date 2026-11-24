@@ -19,6 +19,7 @@ import { PanelForm } from "@/components/panel/PanelForm";
 import { ProjectBar } from "@/components/panel/ProjectBar";
 import { ScanDialog } from "@/components/panel/ScanDialog";
 import { YdeTab } from "@/components/panel/YdeTab";
+import { FloorPlanTab } from "@/components/panel/FloorPlanTab";
 import { Button } from "@/components/ui/button";
 import { buildBomCsv, downloadText, fileSlug } from "@/lib/csv";
 import { downloadSvg } from "@/lib/export-svg";
@@ -60,7 +61,7 @@ const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function Index() {
   const { tab: rawTab } = Route.useSearch();
-  const tab = rawTab === "bom" ? "bom" : rawTab === "yde" ? "yde" : "diagram";
+  const tab = rawTab === "bom" ? "bom" : rawTab === "yde" ? "yde" : rawTab === "plan" ? "plan" : "diagram";
   const navigate = Route.useNavigate();
   const [cfg, setCfg] = useState<PanelConfig>(defaultConfig);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -101,7 +102,7 @@ function Index() {
     idRef.current += 1;
     return `n${Date.now().toString(36)}${idRef.current}`;
   };
-
+const setTab = (t: "diagram" | "bom" | "yde" | "plan") =>
   const stepZoom = (dir: 1 | -1) => {
     const current = zoom === "fit" ? 1 : zoom;
     const idx = ZOOMS.findIndex((z) => z >= current);
