@@ -1,3 +1,4 @@
+tsx
 import { createFileRoute } from "@tanstack/react-router";
 import { fallback, zodValidator } from "@tanstack/zod-adapter";
 import {
@@ -5,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   FileSpreadsheet,
+  FolderKanban,
   Minus,
   Plus,
   Printer,
@@ -17,15 +19,17 @@ import { Diagram } from "@/components/panel/Diagram";
 import { PanelForm } from "@/components/panel/PanelForm";
 import { ProjectBar } from "@/components/panel/ProjectBar";
 import { ScanDialog } from "@/components/panel/ScanDialog";
+import { YdeTab } from "@/components/panel/YdeTab";
 import { Button } from "@/components/ui/button";
 import { buildBomCsv, downloadText, fileSlug } from "@/lib/csv";
 import { downloadSvg } from "@/lib/export-svg";
 import { buildBom, computeTotals } from "@/lib/hager";
 import { defaultConfig, runChecks, type PanelConfig } from "@/lib/panel";
 import { loadCurrent, loadPrices, saveCurrent, savePrices } from "@/lib/storage";
+import { TEMPLATES } from "@/lib/templates";
 import { cn } from "@/lib/utils";
 
-const TITLE = "Σχεδιαστής Μονογραμμικού & Υλικολογίου";
+const TITLE = "Σχεδιαστής Μονογραμμικού, Υλικολογίου & ΥΔΕ";
 
 const searchSchema = z.object({
   tab: fallback(z.string(), "diagram").default("diagram"),
@@ -39,12 +43,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Ζωντανό μονογραμμικό διάγραμμα ηλεκτρικού πίνακα με σύμβολα IEC και αυτόματο υλικολόγιο με κωδικούς Hager, τιμές και εξαγωγή CSV.",
+          "Ζωντανό μονογραμμικό διάγραμμα ηλεκτρικού πίνακα, αυτόματο υλικολόγιο Hager και πλήρες Πρωτόκολλο Ελέγχου ΥΔΕ κατά ΕΛΟΤ 60364.",
       },
       { property: "og:title", content: TITLE },
       {
         property: "og:description",
-        content: "Μονογραμμικό σε SVG/PDF και υλικολόγιο Hager με προσφορά σε Excel/CSV.",
+        content: "Μονογραμμικό σε SVG/PDF, υλικολόγιο Hager και Έντυπα ΥΔΕ / Πρωτόκολλο Ελέγχου.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -57,7 +61,7 @@ const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function Index() {
   const { tab: rawTab } = Route.useSearch();
-  const tab = rawTab === "bom" ? "bom" : "diagram";
+  const tab = rawTab === "bom" ? "bom" : rawTab === "yde" ? "yde" : "diagram";
   const navigate = Route.useNavigate();
   const [cfg, setCfg] = useState<PanelConfig>(defaultConfig);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -73,7 +77,6 @@ function Index() {
     [bom, prices, cfg],
   );
 
-  // Restore the last panel and price list from this device once the page is interactive.
   useEffect(() => {
     const stored = loadCurrent();
     const today = new Date().toLocaleDateString("el-GR");
@@ -108,8 +111,15 @@ function Index() {
     setZoom(next ?? 1);
   };
 
-  const setTab = (t: "diagram" | "bom") =>
+  const setTab = (t: "diagram" | "bom" | "yde") =>
     navigate({ search: (prev) => ({ ...prev, tab: t }), replace: true });
+
+  const applyTemplate = (templateId: string) => {
+    const found = TEMPLATES.find((t) => t.id === templateId);
+    if (!found) return;
+    const today = new Date().toLocaleDateString("el-GR");
+    setCfg({ ...found.build(), date: today });
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen print:block print:h-auto">
@@ -126,7 +136,7 @@ function Index() {
               ? savedOk
                 ? "Αποθηκεύεται αυτόματα σε αυτή τη συσκευή"
                 : "Η αυτόματη αποθήκευση απέτυχε"
-              : "Σύμβολα IEC 60617 · Κωδικοί Hager"}
+              : "Σύμβολα IEC 60617 · Κωδικοί Hager · ΕΛΟΤ 60364"}
           </p>
         </div>
         <ProjectBar
@@ -139,8 +149,31 @@ function Index() {
 
       <main className="grid min-h-0 flex-1 lg:grid-cols-[400px_minmax(0,1fr)] print:block">
         <aside className="min-h-0 border-border bg-background lg:overflow-y-auto lg:border-r print:hidden">
-          <div className="border-b border-border px-5 py-4">
+          <div className="space-y-3 border-b border-border px-5 py-4">
             <ScanDialog cfg={cfg} onApply={setCfg} newId={newId} />
+            <div className="flex items-center gap-2">
+              <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <select
+                aria-label="Έτοιμα Πρότυπα Έργων"
+                defaultValue=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    applyTemplate(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground shadow-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="" disabled>
+                  Φόρτωση Έτοιμου Προτύπου (1Φ, 3Φ, Εργοταξιακό...)
+                </option>
+                {TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <PanelForm cfg={cfg} onChange={setCfg} newId={newId} />
         </aside>
@@ -150,12 +183,13 @@ function Index() {
             <div
               role="tablist"
               aria-label="Προβολή"
-              className="mr-2 flex rounded-md border border-input bg-muted p-0.5"
+              className="mr-2 flex flex-wrap rounded-md border border-input bg-muted p-0.5"
             >
               {(
                 [
                   ["diagram", "Μονογραμμικό"],
                   ["bom", "Υλικολόγιο & Προσφορά"],
+                  ["yde", "Έντυπα ΥΔΕ & Πρωτόκολλο"],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -176,7 +210,7 @@ function Index() {
               ))}
             </div>
 
-            {tab === "diagram" ? (
+            {tab === "diagram" && (
               <>
                 <Button
                   onClick={() =>
@@ -226,90 +260,81 @@ function Index() {
                   </Button>
                 </div>
               </>
-            ) : (
+            )}
+
+            {tab === "bom" && (
               <>
                 <Button
                   className="bg-electric text-electric-foreground hover:bg-electric/85"
-                  onClick={() =>
-                    downloadText(
-                      buildBomCsv(cfg, bom, prices, totals),
-                      `ylikologio-${fileSlug(cfg.project || cfg.panelName)}.csv`,
-                      "text/csv;charset=utf-8",
-                    )
-                  }
-                >
-                  <FileSpreadsheet />
-                  Εξαγωγή σε Excel / CSV
-                </Button>
-                <Button variant="outline" onClick={() => window.print()}>
-                  <Printer />
-                  Εκτύπωση προσφοράς
-                </Button>
-              </>
-            )}
-          </div>
+Χρησιμοποιήστε τον κώδικα με προσοχή.
+onClick={() =>
+downloadText(
+buildBomCsv(cfg, bom, prices, totals),
+ylikologio-${fileSlug(cfg.project || cfg.panelName)}.csv,
+"text/csv;charset=utf-8",
+)
+}
+>
 
-          <div
-            className={cn(
-              "flex shrink-0 items-start gap-2 border-b border-border px-4 py-2 text-xs print:hidden",
-              checks.length ? "bg-warning-soft" : "bg-card",
-            )}
-          >
-            {checks.length ? (
-              <>
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                <ul className="min-w-0 space-y-0.5">
-                  {checks.map((c) => (
-                    <li
-                      key={c.message}
-                      className={
-                        c.level === "error"
-                          ? "font-medium text-foreground"
-                          : "text-muted-foreground"
-                      }
-                    >
-                      {c.message}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-electric-ink" />
-                <span className="text-muted-foreground">
-                  Δεν βρέθηκαν παρατηρήσεις στη διαστασιολόγηση.
-                </span>
-              </>
-            )}
-          </div>
+Εξαγωγή σε Excel / CSV
 
-          <div className="bg-drafting min-h-0 flex-1 overflow-auto p-6 print:overflow-visible print:p-0">
-            {tab === "diagram" ? (
-              <div
-                id="print-area"
-                className={cn(
-                  "mx-auto bg-card shadow-sheet print:shadow-none",
-                  zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
-                )}
-              >
-                <Diagram ref={svgRef} cfg={cfg} scale={zoom} />
-              </div>
-            ) : (
-              <div id="print-area">
-                <BomTable
-                  cfg={cfg}
-                  lines={bom}
-                  prices={prices}
-                  totals={totals}
-                  onPrice={(code, p) => setPrices((prev) => ({ ...prev, [code]: p }))}
-                  onChange={setCfg}
-                  newId={newId}
-                />
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+<Button variant="outline" onClick={() => window.print()}>
+
+Εκτύπωση προσφοράς
+
+</>
+)}
+<div
+className={cn(
+"flex shrink-0 items-start gap-2 border-b border-border px-4 py-2 text-xs print:hidden",
+checks.length ? "bg-warning-soft" : "bg-card",
+)}
+>
+{checks.length ? (
+<>
+{checks.map((c) => (• {c.message}
+))}
+</>
+) : (
+<>
+
+
+Δεν βρέθηκαν παρατηρήσεις στη διαστασιολόγηση.
+
+</>
+)}
+{tab === "yde" ? (
+
+
+
+) : (
+
+{tab === "diagram" ? (
+<div
+id="print-area"
+className={cn(
+"mx-auto bg-card shadow-sheet print:shadow-none",
+zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
+)}
+>
+Εμφάνιση κωδικού
+Λήψη διαγράμματος SVG
+) : (
+
+<BomTable
+cfg={cfg}
+lines={bom}
+prices={prices}
+totals={totals}
+onPrice={(code, p) => setPrices((prev) => ({ ...prev, [code]: p }))}
+onChange={setCfg}
+newId={newId}
+/>
+
+)}
+
+)}
+
+
+);
 }
