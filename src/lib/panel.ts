@@ -1,4 +1,5 @@
 // Domain model for the single-line panel designer: options, defaults, design checks and parsing.
+import { defaultYde, normalizeYde, type YdeProject } from "./yde";
 
 export type Supply = "mono" | "tri";
 export type Curve = "B" | "C";
@@ -43,6 +44,8 @@ export interface PanelConfig {
   panelName: string;
   designer: string;
   date: string;
+  /** ΥΔΕ documents of this project (protocol data, measurements, ΕΗΕ rooms). */
+  yde: YdeProject;
 }
 
 export const RCD_SENSITIVITY = 30;
@@ -234,6 +237,7 @@ export function defaultConfig(): PanelConfig {
     designer: "",
     date: "",
     customItems: [],
+    yde: defaultYde(),
     circuits: [
       {
         id: "c1",
@@ -348,5 +352,9 @@ export function normalizeConfig(raw: unknown): PanelConfig | null {
     date: str(raw["date"], d.date),
     circuits,
     customItems,
+    yde: normalizeYde(
+      raw["yde"],
+      circuits.map((c) => c.id),
+    ),
   };
 }

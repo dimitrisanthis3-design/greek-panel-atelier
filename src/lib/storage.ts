@@ -1,6 +1,7 @@
 // Browser storage for the current panel, saved projects and the supplier price list.
 // Call only from effects or event handlers: localStorage does not exist during SSR.
 import { normalizeConfig, type PanelConfig } from "./panel";
+import { normalizeInstaller, type Installer } from "./yde";
 
 const CURRENT = "msy:current";
 const PROJECTS = "msy:projects";
@@ -135,4 +136,13 @@ export function saveGeminiKey(key: string): void {
       /* ignore */
     }
   }
+}
+
+// The electrician's own details for the ΥΔΕ forms, kept permanently on this device.
+const INSTALLER = "msy:installer";
+export function loadInstaller(): Installer {
+  return normalizeInstaller(read(INSTALLER));
+}
+export function saveInstaller(i: Installer): boolean {
+  return write(INSTALLER, i);
 }
