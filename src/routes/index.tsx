@@ -306,10 +306,14 @@ checks.length ? "bg-warning-soft" : "bg-card",
 
 </>
 )}
-{tab === "yde" ? (
-
-
-
+{tab === "yde" || tab === "plan" ? (
+  <div id="print-area" className="min-h-0 flex-1 overflow-auto print:overflow-visible">
+    {tab === "yde" ? (
+      <YdeTab cfg={cfg} onChange={setCfg} />
+    ) : (
+      <FloorPlanTab cfg={cfg} onChange={setCfg} />
+    )}
+  </div>
 ) : (
 
 {tab === "diagram" ? (
