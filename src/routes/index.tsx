@@ -102,7 +102,7 @@ function Index() {
     idRef.current += 1;
     return `n${Date.now().toString(36)}${idRef.current}`;
   };
-const setTab = (t: "diagram" | "bom" | "yde" | "plan") =>
+
   const stepZoom = (dir: 1 | -1) => {
     const current = zoom === "fit" ? 1 : zoom;
     const idx = ZOOMS.findIndex((z) => z >= current);
