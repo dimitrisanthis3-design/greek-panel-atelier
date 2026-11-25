@@ -71,28 +71,27 @@ export interface DeddieRecommendation {
   supplyCable: string;
 }
 
+/** Estimate a circuit's connected power from its description or rated protection. */
+export function estimateCircuitPowerKw(c: Circuit): number {
+  const desc = c.description.toLowerCase();
+  if (desc.includes("κουζίν") || desc.includes("φούρν")) return 4.5;
+  if (desc.includes("θερμοσίφ")) return 4.0;
+  if (desc.includes("αντλία")) return 5.5;
+  if (desc.includes("κλιματιστ")) return 2.0;
+  if (desc.includes("πλυντήρ")) return 2.2;
+  if (desc.includes("φωτισμ")) return 0.8;
+  if (desc.includes("ρευματοδ")) return 1.8;
+  return c.poles === "3P"
+    ? (c.amps * 400 * 1.732 * 0.85) / 1000
+    : ((c.amps * 230 * 0.85) / 1000) * 0.6;
+}
+
 /** Εκτιμά την ισχύ κάθε γραμμής από την ασφάλεια/περιγραφή και προτείνει παροχή ΔΕΔΔΗΕ */
 export function estimatePanelPower(
   cfg: PanelConfig,
   diversityFactor = 0.65,
 ): DeddieRecommendation {
-  let installedKw = 0;
-
-  for (const c of cfg.circuits) {
-    const desc = c.description.toLowerCase();
-    let kw = 0;
-    if (desc.includes("κουζίν") || desc.includes("φούρν")) kw = 4.5;
-    else if (desc.includes("θερμοσίφ")) kw = 4.0;
-    else if (desc.includes("αντλία")) kw = 5.5;
-    else if (desc.includes("κλιματιστ")) kw = 2.0;
-    else if (desc.includes("πλυντήρ")) kw = 2.2;
-    else if (desc.includes("φωτισμ")) kw = 0.8;
-    else if (desc.includes("ρευματοδ")) kw = 1.8;
-    else {
-      kw = c.poles === "3P" ? (c.amps * 400 * 1.732 * 0.85) / 1000 : (c.amps * 230 * 0.85) / 1000 * 0.6;
-    }
-    installedKw += kw;
-  }
+  const installedKw = cfg.circuits.reduce((sum, circuit) => sum + estimateCircuitPowerKw(circuit), 0);
 
   const demandKw = Math.max(2, installedKw * diversityFactor);
 
@@ -166,4 +165,3 @@ export function balanceThreePhaseCircuits(circuits: Circuit[]): Circuit[] {
     return { ...c, phase: minPhase };
   });
 }
-

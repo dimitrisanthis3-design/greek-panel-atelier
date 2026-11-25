@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultConfig } from "./panel";
-import { applyScan, parseScanResult, sectionForAmps, snapTo } from "./scan";
+import { applyScan, applyVoiceDefaults, parseScanResult, sectionForAmps, snapTo } from "./scan";
 
 let n = 0;
 const newId = () => `t${++n}`;
@@ -47,6 +47,30 @@ describe("scan → panel", () => {
     ]);
   });
 
+  it("keeps the new 25A and 32A ratings when applying AI results", () => {
+    const scan = parseScanResult({
+      supply: "mono",
+      mainSwitchAmps: 25,
+      mainProtectionAmps: 25,
+      rcdAmps: 25,
+      circuits: [],
+      notes: "",
+    })!;
+    const { config } = applyScan(scan, defaultConfig(), newId);
+    const scan32 = parseScanResult({
+      supply: "mono",
+      mainSwitchAmps: 32,
+      mainProtectionAmps: 32,
+      rcdAmps: 40,
+      circuits: [],
+      notes: "",
+    })!;
+    const config32 = applyScan(scan32, defaultConfig(), newId).config;
+
+    expect(config).toMatchObject({ mainSwitch: 25, mainFuse: 25, rcdAmps: 25 });
+    expect(config32).toMatchObject({ mainSwitch: 32, mainFuse: 32 });
+  });
+
   it("keeps current values for anything the photo did not show", () => {
     const base = { ...defaultConfig(), mainSwitch: 80 };
     const { config } = applyScan(parseScanResult({ circuits: [], notes: "" })!, base, newId);
@@ -64,6 +88,63 @@ describe("scan → panel", () => {
     expect(config.supply).toBe("tri");
     expect(config.circuits[0]?.cable).toBe("5x2.5");
     expect(config.circuits[0]?.phase).toBe("L123");
+  });
+
+  it("fills voice defaults, expands quantities and balances three-phase circuits", () => {
+    const parsed = parseScanResult({
+      supply: "tri",
+      mainProtectionAmps: 40,
+      circuits: [
+        { amps: 10, quantity: 5 },
+        { amps: 16, quantity: 8 },
+        { amps: 20, description: "Θερμοσίφωνας" },
+        { amps: 25, description: "Κουζίνα" },
+      ],
+      notes: "",
+    })!;
+    const voice = applyVoiceDefaults(
+      parsed,
+      "Τριφασικός πίνακας με γενική ασφάλεια 40A, πέντε γραμμές 10A, οκτώ γραμμές 16A, θερμοσίφωνα 20A και κουζίνα 25A",
+    );
+    const { config } = applyScan(voice, defaultConfig(), newId);
+
+    expect(config.mainSwitch).toBeGreaterThanOrEqual(config.mainFuse);
+    expect(config.indicatorLamp).toBe(true);
+    expect(config.rcdEnabled).toBe(true);
+    expect(config.rcdPoles).toBe("4P");
+    expect(config.circuits).toHaveLength(15);
+    expect(config.circuits.slice(0, 5).map((c) => `${c.curve} ${c.cable}`)).toEqual(
+      Array(5).fill("B 3x1.5"),
+    );
+    expect(config.circuits.slice(5, 13).map((c) => `${c.curve} ${c.cable}`)).toEqual(
+      Array(8).fill("C 3x2.5"),
+    );
+    expect(config.circuits[13]).toMatchObject({
+      description: "Θερμοσίφωνας",
+      curve: "C",
+      cable: "3x2.5",
+    });
+    expect(config.circuits[14]).toMatchObject({
+      description: "Κουζίνα",
+      poles: "1P+N",
+      curve: "C",
+      cable: "3x4",
+    });
+    expect(new Set(config.circuits.map((c) => c.phase))).toEqual(new Set(["L1", "L2", "L3"]));
+  });
+
+  it("only disables default indicators and RCD when the voice text explicitly says so", () => {
+    const parsed = parseScanResult({ indicatorLamp: false, rcdPresent: false, notes: "" })!;
+    const enabled = applyVoiceDefaults(
+      parsed,
+      "Μονοφασικός πίνακας με φωτεινές ενδείξεις και ρελέ",
+    );
+    const disabled = applyVoiceDefaults(parsed, "Πίνακας χωρίς λυχνίες και χωρίς ρελέ διαρροής");
+
+    expect(enabled.indicatorLamp).toBe(true);
+    expect(enabled.rcdPresent).toBe(true);
+    expect(disabled.indicatorLamp).toBe(false);
+    expect(disabled.rcdPresent).toBe(false);
   });
 
   it("rejects an answer that is not an object", () => {

@@ -5,6 +5,7 @@ import {
   RCD_SENSITIVITY,
   type PanelConfig,
   type ProtectionType,
+  type Supply,
 } from "./panel";
 import {
   ALL_CHECKS,
@@ -15,6 +16,7 @@ import {
   VISUAL_CHECKS,
   checkResult,
   measureIssues,
+  protocolPasses,
   testFor,
   type CableType,
   type MeasureIssue,
@@ -26,6 +28,7 @@ import {
   type Installer,
   type Network,
   type OwnerRole,
+  type ProtocolConclusion,
 } from "./yde";
 
 export interface ProtocolRow {
@@ -76,9 +79,7 @@ export function feedRow(cfg: PanelConfig): FeedRow {
     section: cfg.yde.feedSection.replace(".", ","),
     kind: MAIN_KIND[cfg.protectionType],
     amps: cfg.mainFuse,
-    rcd: cfg.rcdEnabled
-      ? `${cfg.rcdPoles === "2P" ? 2 : 4}Χ${cfg.rcdAmps} ${cfg.rcdType}`
-      : "—",
+    rcd: cfg.rcdEnabled ? `${cfg.rcdPoles === "2P" ? 2 : 4}Χ${cfg.rcdAmps} ${cfg.rcdType}` : "—",
     rcdIdn: cfg.rcdEnabled ? String(RCD_SENSITIVITY) : "—",
   };
 }
@@ -113,7 +114,6 @@ export function nominalVoltage(cfg: PanelConfig): string {
 
 // ---------- The whole document, shared by the on-screen/PDF sheet and the Word file ----------
 
-
 export interface DocCheck {
   id: string;
   label: string;
@@ -121,45 +121,59 @@ export interface DocCheck {
 }
 
 export interface ProtocolDoc {
+  // Κεφαλίδα
   protocolNo: string;
+  checkKind: CheckKind;
+  extraReason: string;
+  // Πλαίσιο 1: στοιχεία εγκατάστασης & ιδιοκτήτη/χρήστη
   ownerRole: OwnerRole;
   owner: string;
   supplyNo: string;
   address: string;
   cityLine: string;
-  checkKind: CheckKind;
-  extraReason: string;
-  installer: Installer;
   installCategory: string;
   installCode: string;
-  voltage: string;
   network: Network;
-  /** Visual checks as rows of three (column-major, as on the form). */
+  supply: Supply;
+  voltage: string;
+  // Πλαίσιο 2: στοιχεία εγκαταστάτη ηλεκτρολόγου
+  installer: Installer;
+  // Πλαίσιο 3: πίνακας οπτικού ελέγχου & δοκιμών
+  /** Visual checks 1.1–1.12 in order, as printed on the form. */
+  visualChecks: DocCheck[];
+  /** Functional tests 2.x, in order. */
+  testChecks: DocCheck[];
+  /** Legacy grid representation retained for the deprecated component export. */
   visualGrid: (DocCheck | null)[][];
   testGrid: (DocCheck | null)[][];
   measureChecks: DocCheck[];
   remarksVisual: string;
-  remarksMeasure: string;
+  // Πλαίσιο 4: πίνακας δοκιμών & μετρήσεων κυκλωμάτων
+  feed: FeedRow;
+  rows: ProtocolRow[];
+  blankRows: number;
+  // Πλαίσιο 5: μετρήσεις γείωσης & γενικών δοκιμών
   earthOhms: string;
   earthType: EarthType;
   earthTypes: { key: EarthType; label: string }[];
   earthMethod: string;
-  feed: FeedRow;
-  rows: ProtocolRow[];
-  blankRows: number;
+  remarksMeasure: string;
+  // Πλαίσιο 6: συμπέρασμα ελέγχου
+  /** True when no check failed and no measurement is out of limits. */
+  passes: boolean;
+  conclusion: ProtocolConclusion;
+  nextCheck: string;
   remarks: string;
   recommendations: string;
   labelAffixed: boolean;
-  nextCheck: string;
   place: string;
   date: string;
   stampLines: string[];
 }
 
-/** Arrange items column by column into rows of three, like the printed form. */
-export function gridOf<T>(items: T[], rows: number): (T | null)[][] {
-  return Array.from({ length: rows }, (_, r) =>
-    [0, 1, 2].map((col) => items[col * rows + r] ?? null),
+function gridOf<T>(items: T[], rows: number): (T | null)[][] {
+  return Array.from({ length: rows }, (_, row) =>
+    [0, 1, 2].map((column) => items[column * rows + row] ?? null),
   );
 }
 
@@ -190,37 +204,44 @@ export function buildProtocolDoc(cfg: PanelConfig, installer: Installer): Protoc
   const cityLine = [y.city, y.postalCode ? `ΤΚ ${y.postalCode}` : ""].filter(Boolean).join("  ");
   return {
     protocolNo: y.protocolNo,
+    checkKind: y.checkKind,
+    extraReason: y.extraReason,
     ownerRole: y.ownerRole,
     owner: y.owner,
     supplyNo: y.supplyNo,
     address: y.address,
     cityLine,
-    checkKind: y.checkKind,
-    extraReason: y.extraReason,
-    installer,
     installCategory: y.installCategory,
     installCode: y.installCode,
-    voltage: nominalVoltage(cfg),
     network: y.network,
+    supply: cfg.supply,
+    voltage: nominalVoltage(cfg),
+    installer,
+    visualChecks: VISUAL_CHECKS.map(toDoc),
+    testChecks: TEST_CHECKS.map(toDoc),
     visualGrid: gridOf(VISUAL_CHECKS.map(toDoc), 4),
     testGrid: gridOf(TEST_CHECKS.map(toDoc), 2),
     measureChecks: MEASURE_CHECKS.map(toDoc),
     remarksVisual: y.remarksVisual,
-    remarksMeasure: y.remarksMeasure,
-    earthOhms: y.earthOhms,
-    earthType: y.earthType,
-    earthTypes: (Object.keys(EARTH_TYPE_LABELS) as EarthType[]).map((key) => ({
-      key,
-      label: EARTH_TYPE_LABELS[key],
-    })),
-    earthMethod: y.earthMethod,
     feed: feedRow(cfg),
     rows,
     blankRows: Math.max(0, PROTOCOL_MIN_ROWS - rows.length),
+    earthOhms: y.earthOhms,
+    earthType: y.earthType,
+    earthTypes: (Object.keys(EARTH_TYPE_LABELS) as (keyof typeof EARTH_TYPE_LABELS)[]).map(
+      (key) => ({
+        key,
+        label: EARTH_TYPE_LABELS[key],
+      }),
+    ),
+    earthMethod: y.earthMethod,
+    remarksMeasure: y.remarksMeasure,
+    passes: protocolPasses(y, cfg.circuits, cfg.supply, rcdIdnMa(cfg)),
+    conclusion: y.conclusion,
+    nextCheck: nextCheckDate(y, cfg.date),
     remarks: y.remarks,
     recommendations: y.recommendations,
     labelAffixed: y.labelAffixed,
-    nextCheck: nextCheckDate(y, cfg.date),
     place: y.city,
     date: cfg.date,
     stampLines: stampLines(installer),

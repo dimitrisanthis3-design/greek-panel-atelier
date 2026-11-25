@@ -112,7 +112,8 @@
   --warning-soft: oklch(0.965 0.04 85);
   --canvas: oklch(0.915 0.01 250);
   --canvas-grid: oklch(0.86 0.014 250);
-  --shadow-sheet: 0 1px 2px oklch(0.2 0.03 255 / 0.12), 0 18px 40px -16px oklch(0.2 0.03 255 / 0.35);
+  --shadow-sheet:
+    0 1px 2px oklch(0.2 0.03 255 / 0.12), 0 18px 40px -16px oklch(0.2 0.03 255 / 0.35);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -147,14 +148,19 @@
   background-size: 24px 24px;
 }
 
+/*
+ * Printing / "Save as PDF": only #print-area survives (every menu, toolbar and button in the
+ * app carries Tailwind's `print:hidden`). The protocol sheets print as A4 portrait pages with
+ * 10 mm margins and their tables are never split across pages.
+ */
 @media print {
   @page {
-    size: A4 landscape;
-    margin: 8mm;
+    size: A4 portrait;
+    margin: 10mm;
   }
   html,
   body {
-    background: white;
+    background: #fff !important;
   }
   .bg-drafting {
     background: white !important;
@@ -162,9 +168,43 @@
   #print-area {
     width: 100% !important;
     max-width: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
   }
   #print-area svg {
     width: 100% !important;
     height: auto !important;
+  }
+  /* Each protocol sheet becomes one A4 page; the screen-only paper shadow is removed. */
+  .protocol-page {
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+  .protocol-page + .protocol-page {
+    break-before: page;
+    page-break-before: always;
+  }
+  .protocol-mark {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    outline: none !important;
+  }
+  .protocol-table {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .protocol-page,
+  .protocol-page * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

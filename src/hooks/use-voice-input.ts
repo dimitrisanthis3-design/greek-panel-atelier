@@ -79,10 +79,12 @@ export function useVoiceInput(options?: VoiceInputOptions) {
       let interim = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const result = ev.results[i];
+        const alt = result?.[0];
+        if (!result || !alt) continue;
         if (result.isFinal) {
-          finalTranscript += result[0].transcript;
+          finalTranscript += alt.transcript;
         } else {
-          interim += result[0].transcript;
+          interim += alt.transcript;
         }
       }
       if (interim && callbacksRef.current.onInterim) {
@@ -163,7 +165,6 @@ const AMP_KEYWORDS: Record<string, number> = {
   "έξη": 6,
   "δέκα": 10,
   "δεκαέξι": 16,
-  "δεκαέξι": 16,
   "είκοσι": 20,
   "εικοσιπέντε": 25,
   "εικοσιπένα": 25,
@@ -227,7 +228,7 @@ export function parseVoiceCircuit(text: string): ParsedVoiceCircuit {
 
   // Cable section
   const cableNum = lower.match(/(\d+(?:[.,]\d+)?)\s*(?:άρι|ari|mm|τετραγωνικό|διατομή)/);
-  if (cableNum) {
+  if (cableNum?.[1]) {
     const s = cableNum[1].replace(",", ".");
     if (["1.5", "2.5", "4", "6", "10"].includes(s)) result.cable = s;
   }
@@ -275,13 +276,13 @@ export function parseVoiceProject(text: string): {
   const result: { project?: string; panelName?: string; designer?: string } = {};
 
   const projectMatch = lower.match(/(?:έργο|πελάτης)\s*[:;]?\s*(.+)/);
-  if (projectMatch) result.project = projectMatch[1].trim();
+  if (projectMatch?.[1]) result.project = projectMatch[1].trim();
 
   const panelMatch = lower.match(/(?:πίνακας|ονομασία)\s*[:;]?\s*(.+)/);
-  if (panelMatch) result.panelName = panelMatch[1].trim();
+  if (panelMatch?.[1]) result.panelName = panelMatch[1].trim();
 
   const designerMatch = lower.match(/(?:μελετητής|σχεδιαστής)\s*[:;]?\s*(.+)/);
-  if (designerMatch) result.designer = designerMatch[1].trim();
+  if (designerMatch?.[1]) result.designer = designerMatch[1].trim();
 
   return result;
 }

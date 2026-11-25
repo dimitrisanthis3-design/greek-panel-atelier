@@ -6,6 +6,7 @@ import { normalizeInstaller, type Installer } from "./yde";
 const CURRENT = "msy:current";
 const PROJECTS = "msy:projects";
 const PRICES = "msy:prices";
+const PROTOCOL_SEQUENCE = "msy:protocol-sequence";
 export const FILE_FORMAT = "sxediastis-monogrammikou";
 
 export interface SavedProject {
@@ -144,5 +145,58 @@ export function loadInstaller(): Installer {
   return normalizeInstaller(read(INSTALLER));
 }
 export function saveInstaller(i: Installer): boolean {
-  return write(INSTALLER, i);
+  if (i.stampImage.length > 1_200_000) return false;
+  return write(INSTALLER, normalizeInstaller(i));
+}
+
+/** A Greek-safe surname/project token for the printed protocol number. */
+export function protocolNameToken(owner: string, project: string): string {
+  const ownerName = owner.trim();
+  const name = ownerName
+    ? ownerName.includes(",")
+      ? (ownerName.split(",")[0] ?? ownerName)
+      : (ownerName.split(/\s+/).filter(Boolean).at(-1) ?? ownerName)
+    : project;
+  const token = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleUpperCase("el-GR")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return token || "ΕΡΓΟ";
+}
+
+/** Allocate the next persistent sequence number and format it for a protocol. */
+export function nextProtocolNumber(owner: string, project: string, date = new Date()): string {
+  const savedSequence = read(PROTOCOL_SEQUENCE);
+  const current =
+    typeof savedSequence === "number"
+      ? savedSequence
+      : typeof savedSequence === "string"
+        ? Number.parseInt(savedSequence, 10)
+        : 0;
+  const sequence = Number.isFinite(current) ? Math.max(0, Math.floor(current)) + 1 : 1;
+  write(PROTOCOL_SEQUENCE, sequence);
+  const datePart = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+  return `${datePart}-${String(sequence).padStart(3, "0")}-${protocolNameToken(owner, project)}`;
+}
+
+/** Keep the allocated date/sequence while refreshing the automatic surname/project suffix. */
+export function renameProtocolNumber(protocolNo: string, owner: string, project: string): string {
+  const match = /^(\d{4}-\d{4}-\d{3,})-.+$/.exec(protocolNo);
+  return match ? `${match[1]}-${protocolNameToken(owner, project)}` : protocolNo;
+}
+
+/** Start a new project with today's date and the next unique protocol number. */
+export function startNumberedProject(config: PanelConfig, date = new Date()): PanelConfig {
+  return {
+    ...config,
+    date: date.toLocaleDateString("el-GR"),
+    yde: {
+      ...config.yde,
+      protocolNo: nextProtocolNumber(config.yde.owner, config.project, date),
+      protocolNoAuto: true,
+    },
+  };
 }

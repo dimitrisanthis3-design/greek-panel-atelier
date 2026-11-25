@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAIN_FUSE_OPTIONS,
+  MAIN_SWITCH_OPTIONS,
+  RCD_AMP_OPTIONS,
   defaultConfig,
   normalizeConfig,
   runChecks,
@@ -111,5 +114,19 @@ describe("normalizeConfig", () => {
       phase: "L123",
       cable: "5x2.5",
     });
+  });
+
+  it("accepts 25A and 32A main switches, plus 25A fuse and RCD values", () => {
+    expect(MAIN_SWITCH_OPTIONS).toEqual([25, 32, 40, 63, 80, 100]);
+    expect(MAIN_FUSE_OPTIONS).toEqual([25, 32, 40, 50, 63]);
+    expect(RCD_AMP_OPTIONS).toEqual([25, 40, 63]);
+
+    const cfg = normalizeConfig({
+      mainSwitch: 25,
+      mainFuse: 25,
+      rcdAmps: 25,
+    });
+    expect(cfg).toMatchObject({ mainSwitch: 25, mainFuse: 25, rcdAmps: 25 });
+    expect(runChecks(cfg!)).toEqual([]);
   });
 });

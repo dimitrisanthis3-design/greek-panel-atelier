@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBom, computeTotals, mainSwitchCode, mcbCode, rcdCode } from "./hager";
+import { buildBom, computeTotals, fuseFor, mainSwitchCode, mcbCode, rcdCode } from "./hager";
 import { buildBomCsv } from "./csv";
 import { defaultConfig, type PanelConfig } from "./panel";
 
@@ -11,6 +11,22 @@ describe("Hager codes", () => {
     expect(mainSwitchCode({ supply: "mono", mainSwitch: 100 })).toBe("SBN290");
     expect(mainSwitchCode({ supply: "tri", mainSwitch: 63 })).toBe("SBN463");
     expect(mainSwitchCode({ supply: "tri", mainSwitch: 80 })).toBe("SBN480");
+  });
+
+  it("maps 25A and 32A switches, RCDs and breakers to Hager catalogue codes", () => {
+    expect(mainSwitchCode({ supply: "mono", mainSwitch: 25 })).toBe("SBN225");
+    expect(mainSwitchCode({ supply: "mono", mainSwitch: 32 })).toBe("SBN232");
+    expect(mainSwitchCode({ supply: "tri", mainSwitch: 25 })).toBe("SBN425");
+    expect(mainSwitchCode({ supply: "tri", mainSwitch: 32 })).toBe("SBN432");
+    expect(rcdCode({ rcdPoles: "2P", rcdAmps: 25, rcdType: "A" })).toBe("CDA225D");
+    expect(rcdCode({ rcdPoles: "4P", rcdAmps: 25, rcdType: "A" })).toBe("CDA425D");
+    expect(mcbCode({ curve: "C", poles: "1P", amps: 25 })).toBe("MCN125");
+    expect(mcbCode({ curve: "C", poles: "1P", amps: 32 })).toBe("MCN132");
+  });
+
+  it("uses the matching 25A or 32A Hager fuse link", () => {
+    expect(fuseFor(25)).toMatchObject({ carrier: "LS501", link: "LF325G", size: "10x38" });
+    expect(fuseFor(32)).toMatchObject({ carrier: "LS501", link: "LF332G", size: "10x38" });
   });
 
   it("maps MCBs to MBN (B) and MCN (C)", () => {

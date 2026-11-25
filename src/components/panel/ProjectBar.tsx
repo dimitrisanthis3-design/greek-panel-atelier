@@ -37,6 +37,7 @@ import {
   parseProjectFile,
   projectFile,
   saveProject,
+  startNumberedProject,
   type SavedProject,
 } from "@/lib/storage";
 
@@ -156,7 +157,7 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
               if (
                 window.confirm("Νέος κενός πίνακας; Ό,τι δεν έχετε αποθηκεύσει ως έργο θα χαθεί.")
               ) {
-                onLoad({ ...defaultConfig(), date: new Date().toLocaleDateString("el-GR") });
+                onLoad(startNumberedProject(defaultConfig()));
                 toast.success("Ξεκινήσατε νέο πίνακα.");
               }
             }}
@@ -282,7 +283,8 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
           <DialogHeader>
             <DialogTitle>Έτοιμα Πρότυπα Έργων</DialogTitle>
             <DialogDescription>
-              Επιλέξτε ένα έτοιμο πρότυπο για γρήγονη εκκίνηση. Θα αντικαταστήσει τον τρέχοντα πίνακα.
+              Επιλέξτε ένα έτοιμο πρότυπο για γρήγονη εκκίνηση. Θα αντικαταστήσει τον τρέχοντα
+              πίνακα.
             </DialogDescription>
           </DialogHeader>
           <ul className="max-h-[60vh] space-y-2 overflow-y-auto">
@@ -294,7 +296,7 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
                     type="button"
                     className="w-full rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-electric hover:bg-electric-soft/50"
                     onClick={() => {
-                      onLoad({ ...preview, date: new Date().toLocaleDateString("el-GR") });
+                      onLoad(startNumberedProject(preview));
                       setTemplatesOpen(false);
                       toast.success(`Φορτώθηκε το πρότυπο «${t.name}».`);
                     }}
@@ -302,8 +304,8 @@ export function ProjectBar({ cfg, prices, onLoad, onImportPrices }: Props) {
                     <p className="text-sm font-semibold">{t.name}</p>
                     <p className="text-xs text-muted-foreground">{t.description}</p>
                     <p className="mt-1 font-mono text-[11px] text-electric-ink">
-                      {preview.supply === "mono" ? "1Φ" : "3Φ"} · {preview.circuits.length} γραμμές ·{" "}
-                      {preview.mainFuse}A
+                      {preview.supply === "mono" ? "1Φ" : "3Φ"} · {preview.circuits.length} γραμμές
+                      · {preview.mainFuse}A
                     </p>
                   </button>
                 </li>

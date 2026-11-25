@@ -27,6 +27,45 @@ export interface CustomItem {
   unitPrice: number;
 }
 
+export type PlanSymbolKind =
+  "panel" | "light" | "switch" | "socket" | "cooker" | "heater" | "ac" | "earth";
+
+export const PLAN_SYMBOL_KINDS: PlanSymbolKind[] = [
+  "panel",
+  "light",
+  "switch",
+  "socket",
+  "cooker",
+  "heater",
+  "ac",
+  "earth",
+];
+
+/** A room outline on the floor plan: top-left corner in canvas units plus size in metres. */
+export interface PlanRoom {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  wMeters: number;
+  hMeters: number;
+}
+
+/** An electrical symbol placed on the floor plan, optionally tied to a circuit. */
+export interface PlanSymbol {
+  id: string;
+  kind: PlanSymbolKind;
+  x: number;
+  y: number;
+  circuitId: string;
+}
+
+/** The 2D floor plan (κάτοψη): draggable rooms and electrical symbols. */
+export interface PlanData {
+  rooms: PlanRoom[];
+  symbols: PlanSymbol[];
+}
+
 export interface PanelConfig {
   supply: Supply;
   mainSwitch: number;
@@ -46,12 +85,14 @@ export interface PanelConfig {
   date: string;
   /** ΥΔΕ documents of this project (protocol data, measurements, ΕΗΕ rooms). */
   yde: YdeProject;
+  /** The 2D floor plan (κάτοψη): rooms and electrical symbols, saved with the project. */
+  plan: PlanData;
 }
 
 export const RCD_SENSITIVITY = 30;
-export const MAIN_SWITCH_OPTIONS = [40, 63, 80, 100];
-export const MAIN_FUSE_OPTIONS = [32, 40, 50, 63];
-export const RCD_AMP_OPTIONS = [40, 63];
+export const MAIN_SWITCH_OPTIONS = [25, 32, 40, 63, 80, 100];
+export const MAIN_FUSE_OPTIONS = [25, 32, 40, 50, 63];
+export const RCD_AMP_OPTIONS = [25, 40, 63];
 export const CIRCUIT_AMP_OPTIONS = [6, 10, 16, 20, 25, 32];
 export const CURVE_OPTIONS: Curve[] = ["B", "C"];
 export const CABLE_SECTIONS = ["1.5", "2.5", "4", "6", "10"];
@@ -220,6 +261,30 @@ export function runChecks(cfg: PanelConfig): Check[] {
   return out;
 }
 
+/** The floor plan canvas is 950x620 viewBox units; 60 units ≈ 1 m. */
+export const PLAN_PX_PER_METER = 60;
+
+/** Default floor plan: a small demo dwelling so a new project is not an empty canvas. */
+export function defaultPlan(): PlanData {
+  return {
+    rooms: [
+      { id: "rm1", name: "Σαλόνι - Κουζίνα", x: 60, y: 60, wMeters: 5, hMeters: 4 },
+      { id: "rm2", name: "Υπνοδωμάτιο", x: 360, y: 60, wMeters: 3.5, hMeters: 3 },
+      { id: "rm3", name: "Λουτρό", x: 360, y: 240, wMeters: 2.5, hMeters: 2 },
+    ],
+    symbols: [
+      { id: "s1", kind: "panel", x: 85, y: 120, circuitId: "" },
+      { id: "s2", kind: "light", x: 210, y: 180, circuitId: "c1" },
+      { id: "s3", kind: "switch", x: 85, y: 260, circuitId: "c1" },
+      { id: "s4", kind: "socket", x: 180, y: 80, circuitId: "c2" },
+      { id: "s5", kind: "cooker", x: 320, y: 100, circuitId: "c3" },
+      { id: "s6", kind: "light", x: 465, y: 150, circuitId: "c1" },
+      { id: "s7", kind: "socket", x: 540, y: 120, circuitId: "c2" },
+      { id: "s8", kind: "heater", x: 435, y: 290, circuitId: "c4" },
+    ],
+  };
+}
+
 export function defaultConfig(): PanelConfig {
   return {
     supply: "mono",
@@ -238,6 +303,7 @@ export function defaultConfig(): PanelConfig {
     date: "",
     customItems: [],
     yde: defaultYde(),
+    plan: defaultPlan(),
     circuits: [
       {
         id: "c1",
@@ -302,6 +368,10 @@ function str(v: unknown, fallback: string): string {
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
+function clampNum(v: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  return Math.min(max, Math.max(min, n));
+}
 
 /** Turn untrusted JSON (local storage or an imported file) into a valid PanelConfig, or null. */
 export function normalizeConfig(raw: unknown): PanelConfig | null {
@@ -356,5 +426,33 @@ export function normalizeConfig(raw: unknown): PanelConfig | null {
       raw["yde"],
       circuits.map((c) => c.id),
     ),
+    plan: normalizePlan(raw["plan"]),
   };
+}
+
+/** Untrusted JSON to a valid floor plan; a missing plan keeps the default demo layout. */
+export function normalizePlan(raw: unknown): PlanData {
+  if (!isRecord(raw)) return defaultPlan();
+  const rooms: PlanRoom[] = (Array.isArray(raw["rooms"]) ? raw["rooms"] : [])
+    .filter(isRecord)
+    .slice(0, 200)
+    .map((r, i) => ({
+      id: str(r["id"], `rm${i + 1}`) || `rm${i + 1}`,
+      name: str(r["name"], ""),
+      x: Math.round(clampNum(r["x"], -2000, 4000, 60)),
+      y: Math.round(clampNum(r["y"], -2000, 4000, 60)),
+      wMeters: clampNum(r["wMeters"], 0.5, 200, 3),
+      hMeters: clampNum(r["hMeters"], 0.5, 200, 3),
+    }));
+  const symbols: PlanSymbol[] = (Array.isArray(raw["symbols"]) ? raw["symbols"] : [])
+    .filter(isRecord)
+    .slice(0, 500)
+    .map((s, i) => ({
+      id: str(s["id"], `sym${i + 1}`) || `sym${i + 1}`,
+      kind: pick<PlanSymbolKind>(s["kind"], PLAN_SYMBOL_KINDS, "socket"),
+      x: Math.round(clampNum(s["x"], -2000, 4000, 0)),
+      y: Math.round(clampNum(s["y"], -2000, 4000, 0)),
+      circuitId: str(s["circuitId"], ""),
+    }));
+  return { rooms, symbols };
 }

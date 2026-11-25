@@ -44,7 +44,14 @@ interface FuseSize {
   modules: number;
 }
 export function fuseFor(amps: number): FuseSize {
-  if (amps <= 32) return { carrier: "LS501", link: "LF332G", size: "10x38", modules: 1 };
+  if (amps <= 32) {
+    return {
+      carrier: "LS501",
+      link: amps <= 25 ? "LF325G" : "LF332G",
+      size: "10x38",
+      modules: 1,
+    };
+  }
   if (amps <= 50)
     return {
       carrier: "LS601",

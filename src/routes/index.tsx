@@ -25,7 +25,14 @@ import { buildBomCsv, downloadText, fileSlug } from "@/lib/csv";
 import { downloadSvg } from "@/lib/export-svg";
 import { buildBom, computeTotals } from "@/lib/hager";
 import { defaultConfig, runChecks, type PanelConfig } from "@/lib/panel";
-import { loadCurrent, loadPrices, saveCurrent, savePrices } from "@/lib/storage";
+import {
+  loadCurrent,
+  loadPrices,
+  renameProtocolNumber,
+  saveCurrent,
+  savePrices,
+  startNumberedProject,
+} from "@/lib/storage";
 import { TEMPLATES } from "@/lib/templates";
 import { cn } from "@/lib/utils";
 
@@ -59,9 +66,19 @@ export const Route = createFileRoute("/")({
 
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+type TabKey = "diagram" | "bom" | "yde" | "plan";
+
+const TABS: readonly (readonly [TabKey, string])[] = [
+  ["diagram", "Μονογραμμικό"],
+  ["bom", "Υλικολόγιο & Προσφορά"],
+  ["yde", "Έντυπα ΥΔΕ & Πρωτόκολλο"],
+  ["plan", "Κάτοψη & Υπολογισμοί"],
+] as const;
+
 function Index() {
   const { tab: rawTab } = Route.useSearch();
-  const tab = rawTab === "bom" ? "bom" : rawTab === "yde" ? "yde" : rawTab === "plan" ? "plan" : "diagram";
+  const tab: TabKey =
+    rawTab === "bom" ? "bom" : rawTab === "yde" ? "yde" : rawTab === "plan" ? "plan" : "diagram";
   const navigate = Route.useNavigate();
   const [cfg, setCfg] = useState<PanelConfig>(defaultConfig);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -80,16 +97,29 @@ function Index() {
   useEffect(() => {
     const stored = loadCurrent();
     const today = new Date().toLocaleDateString("el-GR");
+    const initial = stored
+      ? stored.date
+        ? stored
+        : { ...stored, date: today }
+      : { ...defaultConfig(), date: today };
     setCfg(
-      stored
-        ? stored.date
-          ? stored
-          : { ...stored, date: today }
-        : { ...defaultConfig(), date: today },
+      initial.yde.protocolNo || !initial.yde.protocolNoAuto
+        ? initial
+        : startNumberedProject(initial),
     );
     setPrices(loadPrices());
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !cfg.yde.protocolNoAuto || !cfg.yde.protocolNo) return;
+    const protocolNo = renameProtocolNumber(cfg.yde.protocolNo, cfg.yde.owner, cfg.project);
+    if (protocolNo !== cfg.yde.protocolNo) {
+      setCfg((current) =>
+        current.yde.protocolNoAuto ? { ...current, yde: { ...current.yde, protocolNo } } : current,
+      );
+    }
+  }, [cfg.project, cfg.yde.owner, cfg.yde.protocolNo, cfg.yde.protocolNoAuto, ready]);
 
   useEffect(() => {
     if (ready) setSavedOk(saveCurrent(cfg));
@@ -111,14 +141,13 @@ function Index() {
     setZoom(next ?? 1);
   };
 
-  const setTab = (t: "diagram" | "bom" | "yde" | "plan") =>
+  const setTab = (t: TabKey) =>
     navigate({ search: (prev) => ({ ...prev, tab: t }), replace: true });
 
   const applyTemplate = (templateId: string) => {
     const found = TEMPLATES.find((t) => t.id === templateId);
     if (!found) return;
-    const today = new Date().toLocaleDateString("el-GR");
-    setCfg({ ...found.build(), date: today });
+    setCfg(startNumberedProject(found.build()));
   };
 
   return (
@@ -177,10 +206,7 @@ function Index() {
           </div>
           <PanelForm cfg={cfg} onChange={setCfg} newId={newId} />
         </aside>
-["diagram", "Μονογραμμικό"],
-["bom", "Υλικολόγιο & Προσφορά"],
-["yde", "Έντυπα ΥΔΕ & Πρωτόκολλο"],
-["plan", "Κάτοψη & Υπολογισμοί"],
+
         <section className="flex min-h-[70vh] min-w-0 flex-col lg:min-h-0">
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2.5 print:hidden">
             <div
@@ -188,13 +214,7 @@ function Index() {
               aria-label="Προβολή"
               className="mr-2 flex flex-wrap rounded-md border border-input bg-muted p-0.5"
             >
-              {(
-                [
-                  ["diagram", "Μονογραμμικό"],
-                  ["bom", "Υλικολόγιο & Προσφορά"],
-                  ["yde", "Έντυπα ΥΔΕ & Πρωτόκολλο"],
-                ] as const
-              ).map(([key, label]) => (
+              {TABS.map(([key, label]) => (
                 <button
                   key={key}
                   role="tab"
@@ -269,79 +289,79 @@ function Index() {
               <>
                 <Button
                   className="bg-electric text-electric-foreground hover:bg-electric/85"
-Χρησιμοποιήστε τον κώδικα με προσοχή.
-onClick={() =>
-downloadText(
-buildBomCsv(cfg, bom, prices, totals),
-ylikologio-${fileSlug(cfg.project || cfg.panelName)}.csv,
-"text/csv;charset=utf-8",
-)
-}
->
+                  onClick={() =>
+                    downloadText(
+                      buildBomCsv(cfg, bom, prices, totals),
+                      `ylikologio-${fileSlug(cfg.project || cfg.panelName)}.csv`,
+                      "text/csv;charset=utf-8",
+                    )
+                  }
+                >
+                  <FileSpreadsheet />
+                  Εξαγωγή σε Excel / CSV
+                </Button>
+                <Button variant="outline" onClick={() => window.print()}>
+                  <Printer />
+                  Εκτύπωση προσφοράς
+                </Button>
+              </>
+            )}
+          </div>
 
-Εξαγωγή σε Excel / CSV
+          <div
+            className={cn(
+              "flex shrink-0 items-start gap-2 border-b border-border px-4 py-2 text-xs print:hidden",
+              checks.length ? "bg-warning-soft" : "bg-card",
+            )}
+          >
+            {checks.length ? (
+              <>
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <ul className="space-y-0.5">
+                  {checks.map((c) => (
+                    <li key={c.message}>• {c.message}</li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-electric-ink" />
+                <span>Δεν βρέθηκαν παρατηρήσεις στη διαστασιολόγηση.</span>
+              </>
+            )}
+          </div>
 
-<Button variant="outline" onClick={() => window.print()}>
-
-Εκτύπωση προσφοράς
-
-</>
-)}
-<div
-className={cn(
-"flex shrink-0 items-start gap-2 border-b border-border px-4 py-2 text-xs print:hidden",
-checks.length ? "bg-warning-soft" : "bg-card",
-)}
->
-{checks.length ? (
-<>
-{checks.map((c) => (• {c.message}
-))}
-</>
-) : (
-<>
-
-
-Δεν βρέθηκαν παρατηρήσεις στη διαστασιολόγηση.
-
-</>
-)}
-{tab === "yde" || tab === "plan" ? (
-  <div id="print-area" className="min-h-0 flex-1 overflow-auto print:overflow-visible">
-    {tab === "yde" ? (
-      <YdeTab cfg={cfg} onChange={setCfg} />
-    ) : (
-      <FloorPlanTab cfg={cfg} onChange={setCfg} />
-    )}
-  </div>
-) : (
-
-{tab === "diagram" ? (
-<div
-id="print-area"
-className={cn(
-"mx-auto bg-card shadow-sheet print:shadow-none",
-zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
-)}
->
-Εμφάνιση κωδικού
-Λήψη διαγράμματος SVG
-) : (
-
-<BomTable
-cfg={cfg}
-lines={bom}
-prices={prices}
-totals={totals}
-onPrice={(code, p) => setPrices((prev) => ({ ...prev, [code]: p }))}
-onChange={setCfg}
-newId={newId}
-/>
-
-)}
-
-)}
-
-
-);
+          {tab === "yde" || tab === "plan" ? (
+            <div id="print-area" className="min-h-0 flex-1 overflow-auto print:overflow-visible">
+              {tab === "yde" ? (
+                <YdeTab cfg={cfg} onChange={setCfg} />
+              ) : (
+                <FloorPlanTab cfg={cfg} onChange={setCfg} />
+              )}
+            </div>
+          ) : tab === "diagram" ? (
+            <div
+              id="print-area"
+              className={cn(
+                "mx-auto bg-card shadow-sheet print:shadow-none",
+                zoom === "fit" ? "w-full max-w-[1500px]" : "w-max",
+              )}
+            >
+              <Diagram ref={svgRef} cfg={cfg} scale={zoom} />
+            </div>
+          ) : (
+            <BomTable
+              cfg={cfg}
+              lines={bom}
+              prices={prices}
+              totals={totals}
+              onPrice={(code, p) => setPrices((prev) => ({ ...prev, [code]: p }))}
+              onChange={setCfg}
+              newId={newId}
+            />
+          )}
+        </section>
+      </main>
+    </div>
+  );
 }

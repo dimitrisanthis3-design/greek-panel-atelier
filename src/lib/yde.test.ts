@@ -7,11 +7,15 @@ import {
   defaultTest,
   defaultYde,
   eheTotals,
+  emptyInstaller,
+  matchInstallationUse,
   measureIssues,
+  normalizeInstaller,
   nextCheckDate,
   parseMeasure,
   protocolPasses,
   roomKw,
+  searchInstallationUses,
   type Room,
 } from "./yde";
 
@@ -44,14 +48,26 @@ describe("protocol page 2 rows", () => {
 
   it("writes the measurements typed for each circuit", () => {
     const cfg = defaultConfig();
-    cfg.yde.tests["c2"] = { ...defaultTest(), cableType: "NYM", riso: "30,0", imess: "20,5", zs: "0,36" };
+    cfg.yde.tests["c2"] = {
+      ...defaultTest(),
+      cableType: "NYM",
+      riso: "30,0",
+      imess: "20,5",
+      zs: "0,36",
+    };
     const r = protocolRows(cfg)[1];
     expect(r).toMatchObject({ cableType: "NYM", riso: "30,0", imess: "20,5", zs: "0,36" });
   });
 
   it("feed row carries the main protection and the general RCD", () => {
     const f = feedRow(defaultConfig());
-    expect(f).toMatchObject({ cableType: "NYY", conductors: 3, section: "10", kind: "Diazed", amps: 40 });
+    expect(f).toMatchObject({
+      cableType: "NYY",
+      conductors: 3,
+      section: "10",
+      kind: "Diazed",
+      amps: 40,
+    });
     expect(f.rcd).toBe("2Χ40 A");
     expect(f.rcdIdn).toBe("30");
     const tri = feedRow({ ...defaultConfig(), supply: "tri", rcdPoles: "4P", rcdAmps: 63 });
@@ -90,9 +106,29 @@ describe("measurement limits", () => {
 });
 
 describe("next periodic re-check", () => {
-  it("is 14 years after the check date unless typed", () => {
-    expect(nextCheckDate(defaultYde(), "9/3/2022")).toBe("9 / 3 / 2036");
+  it("uses the installation-use interval unless a date was typed", () => {
+    expect(nextCheckDate(defaultYde(), "9/3/2022")).toBe("9 / 3 / 2032");
+    expect(nextCheckDate({ ...defaultYde(), installCategory: "Φαρμακείο" }, "9/3/2022")).toBe(
+      "9 / 3 / 2027",
+    );
+    expect(nextCheckDate({ ...defaultYde(), installCategory: "Ξενοδοχείο" }, "9/3/2022")).toBe(
+      "9 / 3 / 2024",
+    );
     expect(nextCheckDate({ ...defaultYde(), nextCheck: "1/1/2030" }, "9/3/2022")).toBe("1/1/2030");
+  });
+});
+
+describe("installation use autocomplete", () => {
+  it("matches Greek phrases without requiring accents", () => {
+    expect(matchInstallationUse("ΦΑΡΜΑΚΕΙΟ")).toMatchObject({
+      label: "Φαρμακείο",
+      category: "B",
+      years: 5,
+    });
+  });
+
+  it("returns the closest known use for keyword searches", () => {
+    expect(searchInstallationUses("βενζινάδικο")[0]?.label).toBe("Πρατήριο καυσίμων");
   });
 });
 
@@ -102,23 +138,66 @@ describe("ΕΗΕ installed power", () => {
   });
   it("adds light points and fixed appliances", () => {
     expect(roomKw(room({ sockets: 2, lights: 3, fixedKw: 4 }))).toBe(4.7);
-    const t = eheTotals([room({ sockets: 4, switches: 2, lights: 2 }), room({ sockets: 1, fixedKw: 2.5 })]);
+    const t = eheTotals([
+      room({ sockets: 4, switches: 2, lights: 2 }),
+      room({ sockets: 1, fixedKw: 2.5 }),
+    ]);
     expect(t).toEqual({ sockets: 5, switches: 2, lights: 2, fixedKw: 2.5, kw: 3.7 });
   });
 });
 
 describe("stored ΥΔΕ data", () => {
+  it("normalizes a valid installer stamp image and rejects invalid or oversized data", () => {
+    const stampImage = "data:image/png;base64,SGVsbG8=";
+    expect(normalizeInstaller({ stampImage }).stampImage).toBe(stampImage);
+    expect(normalizeInstaller({ stampImage: "https://example.com/stamp.png" }).stampImage).toBe("");
+    expect(
+      normalizeInstaller({ stampImage: `data:image/png;base64,${"a".repeat(1_200_001)}` })
+        .stampImage,
+    ).toBe(emptyInstaller().stampImage);
+  });
+
   it("survives normalizeConfig and drops measurements of removed circuits", () => {
     const cfg = defaultConfig();
     const raw = JSON.parse(
       JSON.stringify({
         ...cfg,
-        yde: { ...cfg.yde, owner: "Παπαδόπουλος", tests: { c1: { riso: "30" }, gone: { riso: "1" } } },
+        yde: {
+          ...cfg.yde,
+          owner: "Παπαδόπουλος",
+          tests: { c1: { riso: "30" }, gone: { riso: "1" } },
+        },
       }),
     );
     const n = normalizeConfig(raw)!;
     expect(n.yde.owner).toBe("Παπαδόπουλος");
     expect(n.yde.tests["c1"]?.riso).toBe("30");
     expect(n.yde.tests["gone"]).toBeUndefined();
+  });
+
+  it("preserves manual checkbox states and automatic-number settings", () => {
+    const cfg = defaultConfig();
+    const n = normalizeConfig({
+      ...cfg,
+      yde: {
+        ...cfg.yde,
+        ownerRole: "none",
+        checkKind: "none",
+        network: "none",
+        earthType: "none",
+        checks: { "1.1": "none" },
+        conclusion: "unsafe",
+        protocolNoAuto: true,
+      },
+    });
+    expect(n?.yde).toMatchObject({
+      ownerRole: "none",
+      checkKind: "none",
+      network: "none",
+      earthType: "none",
+      checks: { "1.1": "none" },
+      conclusion: "unsafe",
+      protocolNoAuto: true,
+    });
   });
 });

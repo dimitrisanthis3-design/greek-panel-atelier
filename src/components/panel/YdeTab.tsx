@@ -4,9 +4,12 @@
 
 import {
   Building2,
+  Check,
   CheckCircle2,
+  ChevronsUpDown,
   ClipboardCheck,
   FileText,
+  ImagePlus,
   Mic,
   MicOff,
   Plus,
@@ -15,11 +18,20 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -41,22 +53,69 @@ import {
   CHECK_KIND_LABELS,
   CHECK_RESULT_LABELS,
   EARTH_TYPE_LABELS,
+  INSTALLATION_USE_CATEGORIES,
+  NETWORK_LABELS,
+  NETWORK_TYPES,
   ROOM_SUGGESTIONS,
   RECHECK_YEARS,
+  installationUseInfo,
+  matchInstallationUse,
+  nextCheckDate,
+  searchInstallationUses,
+  type InstallationUseOption,
   type CheckKind,
   type CheckResult,
   type EarthType,
   type Network,
   type OwnerRole,
   type CableType,
+  type ProtocolConclusion,
 } from "@/lib/yde";
+import { emptyInstaller, type Installer, type Room } from "@/lib/yde";
 import {
-  emptyInstaller,
-  type Installer,
-  type Room,
-} from "@/lib/yde";
-import { loadInstaller, saveInstaller } from "@/lib/storage";
+  loadInstaller,
+  nextProtocolNumber,
+  renameProtocolNumber,
+  saveInstaller,
+} from "@/lib/storage";
 import { cn } from "@/lib/utils";
+
+const MAX_STAMP_IMAGE_DATA_URL = 1_200_000;
+
+async function prepareStampImage(file: File): Promise<string> {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    throw new Error("Επιτρέπονται μόνο αρχεία PNG, JPG ή WebP.");
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error("Η εικόνα πρέπει να είναι μικρότερη από 12 MB.");
+  }
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    let width = bitmap.width;
+    let height = bitmap.height;
+    const scale = Math.min(1, 1000 / width, 650 / height);
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Δεν ήταν δυνατή η επεξεργασία της εικόνας.");
+
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      canvas.width = width;
+      canvas.height = height;
+      context.clearRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/webp", 0.84);
+      if (dataUrl.length <= MAX_STAMP_IMAGE_DATA_URL) return dataUrl;
+      width = Math.max(1, Math.round(width * 0.82));
+      height = Math.max(1, Math.round(height * 0.82));
+    }
+    throw new Error("Η εικόνα παραμένει πολύ μεγάλη μετά τη συμπίεση.");
+  } finally {
+    bitmap.close();
+  }
+}
 
 interface Props {
   cfg: PanelConfig;
@@ -113,8 +172,8 @@ function prefillMeasurements(cfg: PanelConfig): PanelConfig {
 
 const TYPICAL_VALUES_LABEL = (
   <div className="rounded-md border border-electric/30 bg-electric-soft/50 px-3 py-2 text-xs text-muted-foreground">
-    Προσυμπληρώθηκαν αποδεκτές τυπικές τιμίες: R<sub>iso</sub> &gt; 100 MΩ, RCD &lt; 30 ms,
-    οπτικός έλεγχος «Ναι». Επεξεργαστείτε τις αν χρειάζεται.
+    Προσυμπληρώθηκαν αποδεκτές τυπικές τιμίες: R<sub>iso</sub> &gt; 100 MΩ, RCD &lt; 30 ms, οπτικός
+    έλεγχος «Ναι». Επεξεργαστείτε τις αν χρειάζεται.
   </div>
 );
 
@@ -122,6 +181,9 @@ export function YdeTab({ cfg, onChange }: Props) {
   const [installer, setInstaller] = useState<Installer>(emptyInstaller());
   const [ydeReady, setYdeReady] = useState(false);
   const [ydeSub, setYdeSub] = useState("form");
+  const [installationUseOpen, setInstallationUseOpen] = useState(false);
+  const [installationUseQuery, setInstallationUseQuery] = useState("");
+  const stampFileRef = useRef<HTMLInputElement>(null);
 
   // Load installer details from storage once.
   useEffect(() => {
@@ -132,28 +194,85 @@ export function YdeTab({ cfg, onChange }: Props) {
   // Auto-prefill measurements when circuits exist but have no test data.
   useEffect(() => {
     if (!ydeReady) return;
-    const hasUnfilled = cfg.circuits.some(
-      (c) => !cfg.yde.tests[c.id] || !cfg.yde.checks["1.1"],
-    );
+    const hasUnfilled = cfg.circuits.some((c) => !cfg.yde.tests[c.id] || !cfg.yde.checks["1.1"]);
     if (hasUnfilled && cfg.circuits.length > 0) {
       onChange(prefillMeasurements(cfg));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ydeReady, cfg.circuits.length]);
 
-  const setYde = (patch: Partial<PanelConfig["yde"]>) =>
-    onChange({ ...cfg, yde: { ...cfg.yde, ...patch } });
+  const setYde = (patch: Partial<PanelConfig["yde"]>) => {
+    const yde = {
+      ...cfg.yde,
+      ...patch,
+      checks: patch.checks ? { ...cfg.yde.checks, ...patch.checks } : cfg.yde.checks,
+    };
+    if (cfg.yde.protocolNoAuto && typeof patch.owner === "string") {
+      yde.protocolNo = renameProtocolNumber(yde.protocolNo, yde.owner, cfg.project);
+    }
+    onChange({ ...cfg, yde });
+  };
+
+  const installationUseSuggestions = useMemo(
+    () => searchInstallationUses(installationUseQuery),
+    [installationUseQuery],
+  );
+  const selectedInstallationUse = installationUseInfo(cfg.yde.installCategory);
+  const liveInstallationUse =
+    installationUseOpen && installationUseQuery.trim()
+      ? matchInstallationUse(installationUseQuery)
+      : selectedInstallationUse;
+
+  const chooseInstallationUse = (option: InstallationUseOption) => {
+    setInstallationUseQuery(option.label);
+    setYde({ installCategory: option.label, nextCheck: "" });
+    setInstallationUseOpen(false);
+  };
+
+  const updateInstallationUseQuery = (query: string) => {
+    setInstallationUseQuery(query);
+    const match = matchInstallationUse(query);
+    if (match && (cfg.yde.installCategory !== match.label || cfg.yde.nextCheck.length > 0)) {
+      setYde({ installCategory: match.label, nextCheck: "" });
+    }
+  };
+
+  const recheckYears = selectedInstallationUse?.years ?? RECHECK_YEARS;
+  const suggestedNextCheck = nextCheckDate({ ...cfg.yde, nextCheck: "" }, cfg.date);
 
   const setInstallerField = (k: keyof Installer, v: string) => {
     const next = { ...installer, [k]: v };
     setInstaller(next);
-    saveInstaller(next);
+    if (!saveInstaller(next)) {
+      toast.error("Δεν ήταν δυνατή η αποθήκευση των στοιχείων εγκαταστάτη.");
+    }
   };
 
-  const protocolDoc = useMemo(
-    () => buildProtocolDoc(cfg, installer),
-    [cfg, installer],
-  );
+  const setInstallerStamp = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const stampImage = await prepareStampImage(file);
+      const next = { ...installer, stampImage };
+      if (!saveInstaller(next)) {
+        toast.error("Δεν υπάρχει αρκετός χώρος για την αποθήκευση της εικόνας.");
+        return;
+      }
+      setInstaller(next);
+      toast.success("Η σφραγίδα και η υπογραφή αποθηκεύτηκαν.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Δεν ήταν δυνατή η φόρτωση της εικόνας.",
+      );
+    }
+  };
+
+  const removeInstallerStamp = () => {
+    const next = { ...installer, stampImage: "" };
+    setInstaller(next);
+    if (!saveInstaller(next)) toast.error("Δεν ήταν δυνατή η ενημέρωση των στοιχείων εγκαταστάτη.");
+  };
+
+  const protocolDoc = useMemo(() => buildProtocolDoc(cfg, installer), [cfg, installer]);
 
   // Voice input for project details
   const voice = useVoiceInput({
@@ -229,6 +348,28 @@ export function YdeTab({ cfg, onChange }: Props) {
             </TabsTrigger>
           </TabsList>
           <div className="ml-auto flex items-center gap-2">
+            {voice.error && (
+              <span className="hidden text-[11px] text-destructive sm:inline">{voice.error}</span>
+            )}
+            <Button
+              variant={voice.listening ? "default" : "outline"}
+              size="sm"
+              disabled={!voice.supported}
+              aria-label={voice.listening ? "Διακοπή φωνητικής εισαγωγής" : "Φωνητική εισαγωγή"}
+              title={
+                voice.supported
+                  ? "Φωνητική εισαγωγή στοιχείων έργου (Ελληνικά)"
+                  : "Ο περιηγητής δεν υποστηρίζει φωνητική αναγνώριση"
+              }
+              onClick={() => (voice.listening ? voice.stop() : voice.start())}
+            >
+              {voice.listening ? (
+                <MicOff className="h-3.5 w-3.5" />
+              ) : (
+                <Mic className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">{voice.listening ? "Ακρόαση…" : "Φωνή"}</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -260,12 +401,29 @@ export function YdeTab({ cfg, onChange }: Props) {
                 </h3>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Αριθμός πρωτοκόλλου" htmlFor="protocolNo">
-                    <Input
-                      id="protocolNo"
-                      value={cfg.yde.protocolNo}
-                      onChange={(e) => setYde({ protocolNo: e.target.value })}
-                      className="bg-card"
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="protocolNo"
+                        value={cfg.yde.protocolNo}
+                        onChange={(e) =>
+                          setYde({ protocolNo: e.target.value, protocolNoAuto: false })
+                        }
+                        className="bg-card"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() =>
+                          setYde({
+                            protocolNo: nextProtocolNumber(cfg.yde.owner, cfg.project),
+                            protocolNoAuto: true,
+                          })
+                        }
+                      >
+                        Επόμενος Α/Α
+                      </Button>
+                    </div>
                   </Field>
                   <Field label="Αριθμός παροχής" htmlFor="supplyNo">
                     <Input
@@ -295,6 +453,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                       <SelectContent>
                         <SelectItem value="owner">Ιδιοκτήτης</SelectItem>
                         <SelectItem value="consumer">Καταναλωτής</SelectItem>
+                        <SelectItem value="none">Χωρίς επιλογή</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -331,21 +490,124 @@ export function YdeTab({ cfg, onChange }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(Object.keys(CHECK_KIND_LABELS) as CheckKind[]).map((k) => (
-                          <SelectItem key={k} value={k}>
-                            {CHECK_KIND_LABELS[k]}
-                          </SelectItem>
-                        ))}
+                        {(Object.keys(CHECK_KIND_LABELS) as Exclude<CheckKind, "none">[]).map(
+                          (k) => (
+                            <SelectItem key={k} value={k}>
+                              {CHECK_KIND_LABELS[k]}
+                            </SelectItem>
+                          ),
+                        )}
+                        <SelectItem value="none">Χωρίς επιλογή</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="Κατηγορία εγκατάστασης" htmlFor="installCategory">
-                    <Input
-                      id="installCategory"
-                      value={cfg.yde.installCategory}
-                      onChange={(e) => setYde({ installCategory: e.target.value })}
-                      className="bg-card"
-                    />
+                  <Field
+                    label="Χρήση / Κατηγορία Χώρου (ΦΕΚ Β' 4654/2021)"
+                    htmlFor="installCategory"
+                    className="sm:col-span-2"
+                  >
+                    <Popover
+                      open={installationUseOpen}
+                      onOpenChange={(open) => {
+                        setInstallationUseOpen(open);
+                        if (open) setInstallationUseQuery("");
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="installCategory"
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={installationUseOpen}
+                          className="w-full justify-between bg-card font-normal"
+                        >
+                          <span className="truncate">
+                            {cfg.yde.installCategory || "Πληκτρολόγησε ή επίλεξε χρήση χώρου"}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-[var(--radix-popover-trigger-width)] p-0"
+                      >
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            autoFocus
+                            value={installationUseQuery}
+                            onValueChange={updateInstallationUseQuery}
+                            placeholder="Αναζήτηση χώρου, π.χ. φαρμακείο…"
+                          />
+                          <CommandList>
+                            <CommandEmpty>Δεν βρέθηκαν κοντινές επιλογές.</CommandEmpty>
+                            {installationUseQuery.trim() ? (
+                              <CommandGroup heading="Πλησιέστερες επιλογές">
+                                {installationUseSuggestions.map((option) => (
+                                  <CommandItem
+                                    key={option.label}
+                                    value={option.label}
+                                    onSelect={() => chooseInstallationUse(option)}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "h-4 w-4",
+                                        cfg.yde.installCategory === option.label
+                                          ? "opacity-100"
+                                          : "opacity-0",
+                                      )}
+                                    />
+                                    <span className="flex-1">{option.label}</span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Κατηγορία {option.category} · {option.years} έτη
+                                    </span>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            ) : (
+                              (["A", "B", "C"] as const).map((category) => {
+                                const options = installationUseSuggestions.filter(
+                                  (option) => option.category === category,
+                                );
+                                const categoryInfo = INSTALLATION_USE_CATEGORIES[category];
+                                return (
+                                  <CommandGroup
+                                    key={category}
+                                    heading={`${categoryInfo.label} · ${categoryInfo.years} έτη`}
+                                  >
+                                    {options.map((option) => (
+                                      <CommandItem
+                                        key={option.label}
+                                        value={option.label}
+                                        onSelect={() => chooseInstallationUse(option)}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "h-4 w-4",
+                                            cfg.yde.installCategory === option.label
+                                              ? "opacity-100"
+                                              : "opacity-0",
+                                          )}
+                                        />
+                                        <span className="flex-1">{option.label}</span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                          Κάθε {option.years} έτη
+                                        </span>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                );
+                              })
+                            )}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <p className="text-[11px] text-muted-foreground" aria-live="polite">
+                      {liveInstallationUse
+                        ? `${INSTALLATION_USE_CATEGORIES[liveInstallationUse.category].label} — Επανέλεγχος κάθε ${liveInstallationUse.years} έτη`
+                        : "Επίλεξε την πλησιέστερη προτεινόμενη χρήση για να οριστεί η κατηγορία και ο επανέλεγχος."}
+                    </p>
                   </Field>
                   <Field label="Κωδ. εγκατάστασης" htmlFor="installCode">
                     <Input
@@ -364,9 +626,12 @@ export function YdeTab({ cfg, onChange }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="TT">TT</SelectItem>
-                        <SelectItem value="TN">TN</SelectItem>
-                        <SelectItem value="IT">IT</SelectItem>
+                        {NETWORK_TYPES.map((n) => (
+                          <SelectItem key={n} value={n}>
+                            {NETWORK_LABELS[n]}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="none">Χωρίς επιλογή</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -388,15 +653,22 @@ export function YdeTab({ cfg, onChange }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(Object.keys(EARTH_TYPE_LABELS) as EarthType[]).map((k) => (
-                          <SelectItem key={k} value={k}>
-                            {EARTH_TYPE_LABELS[k]}
-                          </SelectItem>
-                        ))}
+                        {(Object.keys(EARTH_TYPE_LABELS) as Exclude<EarthType, "none">[]).map(
+                          (k) => (
+                            <SelectItem key={k} value={k}>
+                              {EARTH_TYPE_LABELS[k]}
+                            </SelectItem>
+                          ),
+                        )}
+                        <SelectItem value="none">Χωρίς επιλογή</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="Μέθοδος μέτρησης γείωσης" htmlFor="earthMethod" className="sm:col-span-2">
+                  <Field
+                    label="Μέθοδος μέτρησης γείωσης"
+                    htmlFor="earthMethod"
+                    className="sm:col-span-2"
+                  >
                     <Input
                       id="earthMethod"
                       value={cfg.yde.earthMethod}
@@ -452,7 +724,9 @@ export function YdeTab({ cfg, onChange }: Props) {
                           <span className="font-mono text-xs text-electric-ink">{item.id}</span>{" "}
                           {item.label}
                           {item.triOnly && cfg.supply === "mono" && (
-                            <span className="ml-2 text-xs text-muted-foreground">(Δεν εφαρμόζεται σε 1Φ)</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              (Δεν εφαρμόζεται σε 1Φ)
+                            </span>
                           )}
                         </span>
                         <Select
@@ -474,7 +748,11 @@ export function YdeTab({ cfg, onChange }: Props) {
                     );
                   })}
                 </div>
-                <Field label="Παρατηρήσεις οπτικού ελέγχου" htmlFor="remarksVisual" className="mt-4">
+                <Field
+                  label="Παρατηρήσεις οπτικού ελέγχου"
+                  htmlFor="remarksVisual"
+                  className="mt-4"
+                >
                   <Textarea
                     id="remarksVisual"
                     value={cfg.yde.remarksVisual}
@@ -486,10 +764,12 @@ export function YdeTab({ cfg, onChange }: Props) {
 
               {/* Circuit measurements */}
               <section className="rounded-lg border border-border bg-card p-5 shadow-xs">
-                <h3 className="mb-1 text-sm font-semibold tracking-tight">3. Μετρήσεις ανά κύκλωμα</h3>
+                <h3 className="mb-1 text-sm font-semibold tracking-tight">
+                  3. Μετρήσεις ανά κύκλωμα
+                </h3>
                 <p className="mb-4 text-xs text-muted-foreground">
-                  Προσυμπληρωμένο: R<sub>iso</sub> &gt; 100 MΩ, I<sub>mess</sub> &lt; 30 mA, U = 230V.
-                  Συνδέεται αυτόματα με τις γραμμές του πίνακα.
+                  Προσυμπληρωμένο: R<sub>iso</sub> &gt; 100 MΩ, I<sub>mess</sub> &lt; 30 mA, U =
+                  230V. Συνδέεται αυτόματα με τις γραμμές του πίνακα.
                 </p>
                 {cfg.circuits.length === 0 ? (
                   <p className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
@@ -498,20 +778,16 @@ export function YdeTab({ cfg, onChange }: Props) {
                 ) : (
                   <div className="space-y-3">
                     {cfg.circuits.map((c, i) => {
-                      const t =
-                        cfg.yde.tests[c.id] ?? {
-                          cableType: "NYA",
-                          risoLoad: ">100",
-                          riso: ">100",
-                          imess: "<30",
-                          umess: "230",
-                          zs: "",
-                        };
+                      const t = cfg.yde.tests[c.id] ?? {
+                        cableType: "NYA",
+                        risoLoad: ">100",
+                        riso: ">100",
+                        imess: "<30",
+                        umess: "230",
+                        zs: "",
+                      };
                       return (
-                        <div
-                          key={c.id}
-                          className="rounded-md border border-border bg-muted/30 p-3"
-                        >
+                        <div key={c.id} className="rounded-md border border-border bg-muted/30 p-3">
                           <div className="mb-2 flex items-center gap-2">
                             <span className="inline-flex h-7 min-w-9 items-center justify-center rounded-md bg-primary px-2 font-mono text-xs font-semibold text-primary-foreground">
                               {circuitCode(i)}
@@ -603,9 +879,7 @@ export function YdeTab({ cfg, onChange }: Props) {
 
               {/* ΕΗΕ Rooms */}
               <section className="rounded-lg border border-border bg-card p-5 shadow-xs">
-                <h3 className="mb-1 text-sm font-semibold tracking-tight">
-                  Καταγραφή χώρων ΕΗΕ
-                </h3>
+                <h3 className="mb-1 text-sm font-semibold tracking-tight">Καταγραφή χώρων ΕΗΕ</h3>
                 <p className="mb-4 text-xs text-muted-foreground">
                   Καταγραφή σημείων ανά χώρο για τον υπολογισμό εγκατεστημένης ισχύος.
                 </p>
@@ -634,7 +908,9 @@ export function YdeTab({ cfg, onChange }: Props) {
                           min={0}
                           value={r.sockets || ""}
                           placeholder="Σούκοι"
-                          onChange={(e) => updateRoom(r.id, { sockets: Number(e.target.value) || 0 })}
+                          onChange={(e) =>
+                            updateRoom(r.id, { sockets: Number(e.target.value) || 0 })
+                          }
                           className="h-8 bg-card font-mono text-[13px]"
                         />
                         <Input
@@ -643,7 +919,9 @@ export function YdeTab({ cfg, onChange }: Props) {
                           min={0}
                           value={r.switches || ""}
                           placeholder="Διακόπτες"
-                          onChange={(e) => updateRoom(r.id, { switches: Number(e.target.value) || 0 })}
+                          onChange={(e) =>
+                            updateRoom(r.id, { switches: Number(e.target.value) || 0 })
+                          }
                           className="h-8 bg-card font-mono text-[13px]"
                         />
                         <Input
@@ -652,7 +930,9 @@ export function YdeTab({ cfg, onChange }: Props) {
                           min={0}
                           value={r.lights || ""}
                           placeholder="Φωτ."
-                          onChange={(e) => updateRoom(r.id, { lights: Number(e.target.value) || 0 })}
+                          onChange={(e) =>
+                            updateRoom(r.id, { lights: Number(e.target.value) || 0 })
+                          }
                           className="h-8 bg-card font-mono text-[13px]"
                         />
                         <div className="flex items-center gap-1">
@@ -663,7 +943,9 @@ export function YdeTab({ cfg, onChange }: Props) {
                             min={0}
                             value={r.fixedKw || ""}
                             placeholder="kW"
-                            onChange={(e) => updateRoom(r.id, { fixedKw: Number(e.target.value) || 0 })}
+                            onChange={(e) =>
+                              updateRoom(r.id, { fixedKw: Number(e.target.value) || 0 })
+                            }
                             className="h-8 bg-card font-mono text-[13px]"
                           />
                           <Button
@@ -720,6 +1002,22 @@ export function YdeTab({ cfg, onChange }: Props) {
                       className="bg-card min-h-20"
                     />
                   </Field>
+                  <Field label="Συμπέρασμα ασφάλειας">
+                    <Select
+                      value={cfg.yde.conclusion}
+                      onValueChange={(v) => setYde({ conclusion: v as ProtocolConclusion })}
+                    >
+                      <SelectTrigger className="bg-card">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Αυτόματο από ελέγχους και μετρήσεις</SelectItem>
+                        <SelectItem value="safe">Ασφαλής</SelectItem>
+                        <SelectItem value="unsafe">Μη ασφαλής</SelectItem>
+                        <SelectItem value="none">Χωρίς επιλογή</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
                   <div className="flex items-center justify-between gap-3 rounded-md border border-input bg-card px-3 py-2.5">
                     <Label htmlFor="labelAffixed" className="text-[13px] font-medium">
                       Επικόλληση ετικέτας ελέγχου στον πίνακα
@@ -730,11 +1028,14 @@ export function YdeTab({ cfg, onChange }: Props) {
                       onCheckedChange={(v) => setYde({ labelAffixed: v })}
                     />
                   </div>
-                  <Field label={`Επόμενος τακτικός επανέλεγχος (προεπιλογή: +${RECHECK_YEARS} χρόνια)`} htmlFor="nextCheck">
+                  <Field
+                    label={`Επόμενος τακτικός επανέλεγχος (${INSTALLATION_USE_CATEGORIES[selectedInstallationUse?.category ?? "A"].label} — Επανέλεγχος κάθε ${recheckYears} έτη)`}
+                    htmlFor="nextCheck"
+                  >
                     <Input
                       id="nextCheck"
                       value={cfg.yde.nextCheck}
-                      placeholder="π.χ. 24/11/2040"
+                      placeholder={suggestedNextCheck || "π.χ. 24/11/2040"}
                       onChange={(e) => setYde({ nextCheck: e.target.value })}
                       className="bg-card font-mono text-[13px]"
                     />
@@ -840,13 +1141,60 @@ export function YdeTab({ cfg, onChange }: Props) {
                       className="bg-card font-mono text-[13px]"
                     />
                   </Field>
+                  <Field
+                    label="Ψηφιακή σφραγίδα / υπογραφή (PNG, JPG ή WebP)"
+                    htmlFor="iStampImage"
+                    className="sm:col-span-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-3 rounded-md border border-input bg-background p-3">
+                      <input
+                        ref={stampFileRef}
+                        id="iStampImage"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          void setInstallerStamp(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => stampFileRef.current?.click()}
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        Ανέβασμα εικόνας
+                      </Button>
+                      {installer.stampImage ? (
+                        <>
+                          <img
+                            src={installer.stampImage}
+                            alt="Προεπισκόπηση ψηφιακής σφραγίδας και υπογραφής"
+                            className="h-24 max-w-full object-contain mix-blend-multiply"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={removeInstallerStamp}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Αφαίρεση
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Η εικόνα αποθηκεύεται στη συσκευή και εμφανίζεται στο Πρωτόκολλο.
+                        </span>
+                      )}
+                    </div>
+                  </Field>
                 </div>
               </section>
 
               <section className="rounded-lg border border-border bg-card p-5 shadow-xs">
-                <h3 className="mb-4 text-sm font-semibold tracking-tight">
-                  Όργανα Μετρήσεων
-                </h3>
+                <h3 className="mb-4 text-sm font-semibold tracking-tight">Όργανα Μετρήσεων</h3>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <Field label="Όνομα οργάνου" htmlFor="iInstName">
                     <Input
@@ -897,7 +1245,16 @@ export function YdeTab({ cfg, onChange }: Props) {
                   Εκτύπωση / Αποθήκευση PDF
                 </Button>
               </div>
-              <ProtocolDocument doc={protocolDoc} />
+              <ProtocolDocument
+                doc={protocolDoc}
+                onOwnerRoleChange={(ownerRole) => setYde({ ownerRole })}
+                onCheckKindChange={(checkKind) => setYde({ checkKind })}
+                onNetworkChange={(network) => setYde({ network })}
+                onCheckChange={updateCheck}
+                onEarthTypeChange={(earthType) => setYde({ earthType })}
+                onLabelAffixedChange={(labelAffixed) => setYde({ labelAffixed })}
+                onConclusionChange={(conclusion) => setYde({ conclusion })}
+              />
             </div>
           </TabsContent>
         </div>
