@@ -195,6 +195,7 @@ export interface Installer {
   instrumentType: string;
   instrumentSerial: string;
   stampImage: string;
+  signatureImage: string;
 }
 
 export interface CircuitTest {
@@ -308,6 +309,7 @@ export function emptyInstaller(): Installer {
     instrumentType: "",
     instrumentSerial: "",
     stampImage: "",
+    signatureImage: "",
   };
 }
 
@@ -595,6 +597,13 @@ export function normalizeInstaller(raw: unknown): Installer {
     stampImage.length <= 1_200_000 &&
     /^data:image\/(?:png|jpeg|webp);base64,[\w+/]+=*$/i.test(stampImage)
       ? stampImage
+      : "";
+  const signatureImage = r["signatureImage"];
+  out.signatureImage =
+    typeof signatureImage === "string" &&
+    signatureImage.length <= 1_200_000 &&
+    /^data:image\/(?:png|jpeg|webp);base64,[\w+/]+=*$/i.test(signatureImage)
+      ? signatureImage
       : "";
   return out;
 }

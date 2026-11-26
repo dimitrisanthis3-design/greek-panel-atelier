@@ -145,7 +145,7 @@ export function loadInstaller(): Installer {
   return normalizeInstaller(read(INSTALLER));
 }
 export function saveInstaller(i: Installer): boolean {
-  if (i.stampImage.length > 1_200_000) return false;
+  if (i.stampImage.length + i.signatureImage.length > 2_500_000) return false;
   return write(INSTALLER, normalizeInstaller(i));
 }
 

@@ -185,6 +185,7 @@ export function YdeTab({ cfg, onChange }: Props) {
   const [installationUseOpen, setInstallationUseOpen] = useState(false);
   const [installationUseQuery, setInstallationUseQuery] = useState("");
   const stampFileRef = useRef<HTMLInputElement>(null);
+  const signatureFileRef = useRef<HTMLInputElement>(null);
 
   // Load installer details from storage once.
   useEffect(() => {
@@ -267,8 +268,32 @@ export function YdeTab({ cfg, onChange }: Props) {
     }
   };
 
+  const setInstallerSignature = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const signatureImage = await prepareStampImage(file);
+      const next = { ...installer, signatureImage };
+      if (!saveInstaller(next)) {
+        toast.error("Δεν υπάρχει αρκετός χώρος για την αποθήκευση της εικόνας.");
+        return;
+      }
+      setInstaller(next);
+      toast.success("Η ψηφιακή υπογραφή αποθηκεύτηκε.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Δεν ήταν δυνατή η φόρτωση της εικόνας.",
+      );
+    }
+  };
+
   const removeInstallerStamp = () => {
     const next = { ...installer, stampImage: "" };
+    setInstaller(next);
+    if (!saveInstaller(next)) toast.error("Δεν ήταν δυνατή η ενημέρωση των στοιχείων εγκαταστάτη.");
+  };
+
+  const removeInstallerSignature = () => {
+    const next = { ...installer, signatureImage: "" };
     setInstaller(next);
     if (!saveInstaller(next)) toast.error("Δεν ήταν δυνατή η ενημέρωση των στοιχείων εγκαταστάτη.");
   };
@@ -1143,7 +1168,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                     />
                   </Field>
                   <Field
-                    label="Ψηφιακή σφραγίδα / υπογραφή (PNG / JPG)"
+                    label="Ψηφιακή σφραγίδα (PNG / JPG)"
                     htmlFor="iStampImage"
                     className="sm:col-span-2"
                   >
@@ -1152,7 +1177,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                         ref={stampFileRef}
                         id="iStampImage"
                         type="file"
-                        accept="image/png,image/jpeg"
+                        accept="image/png,image/jpeg,image/webp"
                         className="hidden"
                         onChange={(event) => {
                           void setInstallerStamp(event.currentTarget.files?.[0]);
@@ -1165,13 +1190,13 @@ export function YdeTab({ cfg, onChange }: Props) {
                         onClick={() => stampFileRef.current?.click()}
                       >
                         <ImagePlus className="h-4 w-4" />
-                        Ανέβασμα σφραγίδας / υπογραφής
+                        Ανέβασμα σφραγίδας
                       </Button>
                       {installer.stampImage ? (
                         <>
                           <img
                             src={installer.stampImage}
-                            alt="Προεπισκόπηση ψηφιακής σφραγίδας και υπογραφής"
+                            alt="Προεπισκόπηση ψηφιακής σφραγίδας"
                             className="h-24 max-w-full object-contain mix-blend-multiply"
                           />
                           <Button
@@ -1186,7 +1211,57 @@ export function YdeTab({ cfg, onChange }: Props) {
                         </>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          Δεν έχει προστεθεί εικόνα.
+                          Δεν έχει προστεθεί σφραγίδα.
+                        </span>
+                      )}
+                    </div>
+                  </Field>
+
+                  <Field
+                    label="Ψηφιακή υπογραφή (PNG / JPG)"
+                    htmlFor="iSignatureImage"
+                    className="sm:col-span-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-3 rounded-md border border-input bg-background p-3">
+                      <input
+                        ref={signatureFileRef}
+                        id="iSignatureImage"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          void setInstallerSignature(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => signatureFileRef.current?.click()}
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        Ανέβασμα υπογραφής
+                      </Button>
+                      {installer.signatureImage ? (
+                        <>
+                          <img
+                            src={installer.signatureImage}
+                            alt="Προεπισκόπηση ψηφιακής υπογραφής"
+                            className="h-24 max-w-full object-contain mix-blend-multiply"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={removeInstallerSignature}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Αφαίρεση
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Δεν έχει προστεθεί υπογραφή.
                         </span>
                       )}
                     </div>
