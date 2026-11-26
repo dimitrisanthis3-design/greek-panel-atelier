@@ -11,7 +11,12 @@ describe("estimateCircuitPowerKw", () => {
   });
 
   it("estimates unnamed three-phase loads from their rated current", () => {
-    const circuit = { ...defaultConfig().circuits[0]!, poles: "3P" as const, amps: 16 };
+    const circuit = {
+      ...defaultConfig().circuits[0]!,
+      description: "",
+      poles: "3P" as const,
+      amps: 16,
+    };
 
     expect(estimateCircuitPowerKw(circuit)).toBeCloseTo((16 * 400 * 1.732 * 0.85) / 1000);
   });

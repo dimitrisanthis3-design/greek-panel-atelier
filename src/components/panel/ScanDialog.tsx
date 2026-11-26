@@ -248,6 +248,11 @@ export function ScanDialog({ cfg, onApply, newId }: Props) {
 
   const p = preview?.config;
 
+  // While dictating, the words heard so far appear live inside the text box.
+  const spoken = voiceText.trimEnd();
+  const liveTail = voiceListening && interimText ? `${spoken ? " " : ""}${interimText}` : "";
+  const dictationText = liveTail ? `${spoken}${liveTail}` : voiceText;
+
   return (
     <>
       <Button
@@ -430,8 +435,16 @@ export function ScanDialog({ cfg, onApply, newId }: Props) {
                   </p>
                 )}
                 <Textarea
-                  value={voiceText}
-                  onChange={(event) => setVoiceText(event.target.value)}
+                  value={dictationText}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    // Keep manual edits, but drop the live tail so it is not stored twice.
+                    if (liveTail && next.endsWith(liveTail)) {
+                      setVoiceText(next.slice(0, next.length - liveTail.length));
+                      return;
+                    }
+                    setVoiceText(next);
+                  }}
                   placeholder="Παράδειγμα: Τριφασικός πίνακας με γενική ασφάλεια 40A, ρελέ διαρροής, πέντε γραμμές 10A, οκτώ γραμμές 16A, θερμοσίφωνα 20A και κουζίνα 25A."
                   aria-label="Περιγραφή ηλεκτρικού πίνακα"
                   rows={5}
@@ -439,7 +452,7 @@ export function ScanDialog({ cfg, onApply, newId }: Props) {
                 />
                 {voiceListening && (
                   <p aria-live="polite" className="text-xs text-muted-foreground">
-                    Ακούω… {interimText}
+                    Ακούω… γράφω ζωντανά στο πλαίσιο. Πατήστε «Διακοπή» όταν τελειώσετε.
                   </p>
                 )}
                 {voiceError && (

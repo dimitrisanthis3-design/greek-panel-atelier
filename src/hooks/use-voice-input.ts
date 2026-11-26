@@ -27,6 +27,9 @@ interface SpeechRecognitionLike extends EventTarget {
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
+/** How many times we silently resume after the browser ends a session on its own. */
+const MAX_AUTO_RESTARTS = 12;
+
 function getSpeechRecognition(): SpeechRecognitionCtor | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as {
@@ -49,6 +52,9 @@ export function useVoiceInput(options?: VoiceInputOptions) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // True while the user wants to keep talking; the browser may end sessions early.
+  const shouldListenRef = useRef(false);
+  const restartsRef = useRef(0);
   const callbacksRef = useRef({ onResult, onInterim });
   callbacksRef.current = { onResult, onInterim };
 
@@ -68,7 +74,8 @@ export function useVoiceInput(options?: VoiceInputOptions) {
     }
     const rec = new Ctor();
     rec.lang = "el-GR";
-    rec.continuous = false;
+    // Keep the session open through short pauses in speech; we resume it ourselves.
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
@@ -83,6 +90,7 @@ export function useVoiceInput(options?: VoiceInputOptions) {
         if (!result || !alt) continue;
         if (result.isFinal) {
           finalTranscript += alt.transcript;
+          restartsRef.current = 0;
         } else {
           interim += alt.transcript;
         }
@@ -99,33 +107,62 @@ export function useVoiceInput(options?: VoiceInputOptions) {
     rec.addEventListener("error", (e: Event) => {
       const ev = e as Event & { error?: string };
       const err = ev.error ?? "unknown";
-      if (err === "no-speech") {
-        setError("Δεν ανιχνεύτηκε ομιλία. Δοκιμάστε ξανά.");
+      if (err === "no-speech" || err === "aborted") {
+        // Recoverable: the "end" handler resumes the session, so no message.
+        setError("");
       } else if (err === "not-allowed" || err === "service-not-allowed") {
+        shouldListenRef.current = false;
         setError("Δεν δόθηκε άδεια χρήσης του μικροφώνου.");
+        setListening(false);
       } else if (err === "network") {
+        shouldListenRef.current = false;
         setError("Σφάλμα δικτύου κατά τη φωνητική αναγνώριση.");
+        setListening(false);
       } else {
         setError(`Σφάλμα φωνητικής αναγνώρισης: ${err}`);
       }
-      setListening(false);
     });
 
     rec.addEventListener("end", () => {
-      setListening(false);
+      if (!shouldListenRef.current) {
+        setListening(false);
+        return;
+      }
+      // The browser closed the session on its own (silence/timeout): keep listening
+      // until the user presses "Διακοπή".
+      if (restartsRef.current >= MAX_AUTO_RESTARTS) {
+        shouldListenRef.current = false;
+        setListening(false);
+        setError("Η φωνητική αναγνώριση σταμάτησε. Πατήστε ξανά «Υπαγόρευση».");
+        return;
+      }
+      restartsRef.current += 1;
+      window.setTimeout(() => {
+        if (!shouldListenRef.current) return;
+        try {
+          rec.start();
+        } catch {
+          /* already running or stopping: the next "end" retries */
+        }
+      }, 150);
     });
 
     recognitionRef.current = rec;
+    shouldListenRef.current = true;
+    restartsRef.current = 0;
     try {
       rec.start();
       setListening(true);
     } catch {
+      shouldListenRef.current = false;
       setError("Δεν ήταν δυνατή η εκκίνηση του μικροφώνου.");
       setListening(false);
     }
   }, []);
 
   const stop = useCallback(() => {
+    shouldListenRef.current = false;
+    restartsRef.current = 0;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -138,6 +175,7 @@ export function useVoiceInput(options?: VoiceInputOptions) {
 
   useEffect(() => {
     return () => {
+      shouldListenRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
