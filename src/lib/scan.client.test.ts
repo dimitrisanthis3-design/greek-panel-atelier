@@ -41,7 +41,7 @@ describe("direct Gemini scan request", () => {
 
     const [url, options] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
     );
     expect(options?.headers).toMatchObject({ "x-goog-api-key": "test-key" });
     const request = JSON.parse(String(options?.body)) as {
@@ -72,6 +72,38 @@ describe("direct Gemini scan request", () => {
       ok: false,
       error: "Το κλειδί API δεν είναι έγκυρο. Ελέγξτε το και δοκιμάστε ξανά.",
     });
+  });
+
+  it("retries with the fallback model when the main model answers 404", async () => {
+    const scanResult = { supply: "mono", mainSwitchAmps: 63, circuits: [], notes: "" };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Model not found" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(scanResult) }] } }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await describePanelWithGemini("test-key", "Μονοφασικός πίνακας 63A");
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+    );
   });
 
   it("sends a Greek voice description as text only and parses quantities", async () => {

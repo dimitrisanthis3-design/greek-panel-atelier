@@ -6,7 +6,9 @@ import {
   type ScanResult,
 } from "./scan";
 
-export const GEMINI_MODEL = "gemini-2.5-flash";
+export const GEMINI_MODEL = "gemini-3-flash-preview";
+/** Used when the main model answers 404 (not available on this key yet). */
+export const GEMINI_FALLBACK_MODEL = "gemini-3.8-flash";
 
 export type ScanResponse = { ok: true; result: ScanResult } | { ok: false; error: string };
 
@@ -36,24 +38,37 @@ async function requestGemini(
   apiKey: string,
   parts: ({ inlineData: { mimeType: string; data: string } } | { text: string })[],
 ): Promise<ScanResponse> {
-  let response: Response;
-  try {
-    response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts }],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            responseSchema: GEMINI_RESPONSE_SCHEMA,
-          },
-        }),
-      },
-    );
-  } catch {
+  const models = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL];
+  let response: Response | undefined;
+  for (const [index, model] of models.entries()) {
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+              responseSchema: GEMINI_RESPONSE_SCHEMA,
+            },
+          }),
+        },
+      );
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Δεν ήταν δυνατή η σύνδεση με το Google Gemini. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά.",
+      };
+    }
+    // Model not found on this key: retry once with the fallback model.
+    if (response.status === 404 && index < models.length - 1) continue;
+    break;
+  }
+  if (!response) {
     return {
       ok: false,
       error:
