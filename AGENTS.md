@@ -30,6 +30,7 @@ use the editor.
 <!-- LOVABLE:END -->
 
 ## Project rules
+- Installer stamp uploads are stored as embedded PNG data via storage.ts and read after hydration by the active diagram; this preserves standalone SVG portability without server storage.
 - The diagram (src/components/panel) is plain SVG with inline presentation attributes and Arial, never Tailwind classes or CSS variables: the exported .svg must open standalone in CAD/Illustrator.
 - Panel options, defaults and design checks live in src/lib/panel.ts with tests in src/lib/panel.test.ts; UI components only render them.
 - Panel state is client-only (no backend); default circuit ids are fixed strings so SSR and hydration match.

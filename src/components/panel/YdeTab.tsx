@@ -83,8 +83,8 @@ import { cn } from "@/lib/utils";
 const MAX_STAMP_IMAGE_DATA_URL = 1_200_000;
 
 async function prepareStampImage(file: File): Promise<string> {
-  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-    throw new Error("Επιτρέπονται μόνο αρχεία PNG, JPG ή WebP.");
+  if (!["image/png", "image/jpeg"].includes(file.type)) {
+    throw new Error("Επιτρέπονται μόνο αρχεία PNG ή JPG.");
   }
   if (file.size > 12 * 1024 * 1024) {
     throw new Error("Η εικόνα πρέπει να είναι μικρότερη από 12 MB.");
@@ -106,7 +106,8 @@ async function prepareStampImage(file: File): Promise<string> {
       canvas.height = height;
       context.clearRect(0, 0, width, height);
       context.drawImage(bitmap, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL("image/webp", 0.84);
+      // Embed PNG for standalone SVG/CAD compatibility and preserve transparency.
+      const dataUrl = canvas.toDataURL("image/png");
       if (dataUrl.length <= MAX_STAMP_IMAGE_DATA_URL) return dataUrl;
       width = Math.max(1, Math.round(width * 0.82));
       height = Math.max(1, Math.round(height * 0.82));
@@ -1142,7 +1143,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                     />
                   </Field>
                   <Field
-                    label="Ψηφιακή σφραγίδα / υπογραφή (PNG, JPG ή WebP)"
+                    label="Ψηφιακή σφραγίδα / υπογραφή (PNG / JPG)"
                     htmlFor="iStampImage"
                     className="sm:col-span-2"
                   >
@@ -1151,7 +1152,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                         ref={stampFileRef}
                         id="iStampImage"
                         type="file"
-                        accept="image/png,image/jpeg,image/webp"
+                        accept="image/png,image/jpeg"
                         className="hidden"
                         onChange={(event) => {
                           void setInstallerStamp(event.currentTarget.files?.[0]);
@@ -1164,7 +1165,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                         onClick={() => stampFileRef.current?.click()}
                       >
                         <ImagePlus className="h-4 w-4" />
-                        Ανέβασμα εικόνας
+                        Ανέβασμα σφραγίδας / υπογραφής
                       </Button>
                       {installer.stampImage ? (
                         <>
@@ -1185,7 +1186,7 @@ export function YdeTab({ cfg, onChange }: Props) {
                         </>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          Η εικόνα αποθηκεύεται στη συσκευή και εμφανίζεται στο Πρωτόκολλο.
+                          Δεν έχει προστεθεί εικόνα.
                         </span>
                       )}
                     </div>

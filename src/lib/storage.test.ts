@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaultConfig } from "./panel";
+import { emptyInstaller } from "./yde";
 import {
   loadGeminiKey,
+  loadInstaller,
   nextProtocolNumber,
   protocolNameToken,
   renameProtocolNumber,
   saveGeminiKey,
+  saveInstaller,
   startNumberedProject,
 } from "./storage";
 
@@ -37,6 +40,25 @@ describe("automatic protocol numbers", () => {
 
     saveGeminiKey("");
     expect(loadGeminiKey()).toBe("");
+  });
+
+  it.each(["png", "jpeg"])("persists a %s installer stamp on the device", (type) => {
+    const stampImage = `data:image/${type};base64,SGVsbG8=`;
+    expect(saveInstaller({ ...emptyInstaller(), name: "Ηλεκτρολόγος", stampImage })).toBe(true);
+    expect(loadInstaller().stampImage).toBe(stampImage);
+    expect(loadInstaller().name).toBe("Ηλεκτρολόγος");
+  });
+
+  it("removes the saved stamp without losing installer details", () => {
+    const installer = {
+      ...emptyInstaller(),
+      name: "Ηλεκτρολόγος",
+      stampImage: "data:image/png;base64,SGVsbG8=",
+    };
+    saveInstaller(installer);
+    expect(saveInstaller({ ...loadInstaller(), stampImage: "" })).toBe(true);
+    expect(loadInstaller().stampImage).toBe("");
+    expect(loadInstaller().name).toBe("Ηλεκτρολόγος");
   });
 
   it("uses the current date, a persistent sequence, and an unaccented surname", () => {

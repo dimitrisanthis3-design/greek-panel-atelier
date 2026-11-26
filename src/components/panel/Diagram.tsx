@@ -1,5 +1,6 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { fuseFor, mainSwitchCode, mcbCode, rcdCode } from "@/lib/hager";
+import { loadInstaller } from "@/lib/storage";
 import {
   circuitCode,
   cableCores,
@@ -59,6 +60,10 @@ function clip(s: string, n: number): string {
 
 export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: number | "fit" }>(
   function Diagram({ cfg, scale }, ref) {
+    const [stampImage, setStampImage] = useState("");
+    useEffect(() => {
+      setStampImage(loadInstaller().stampImage);
+    }, []);
     const n = cfg.circuits.length;
     const cols = Math.max(n, 1);
     const cx = (i: number) => CIRC_START + COL * i + COL / 2;
@@ -363,17 +368,19 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
                 strokeWidth={k === 0 || k === n ? 1.2 : 0.6}
               />
             ))}
-            {["Κύκλωμα", "Προστασία", "Κωδ. Hager", "Καλώδιο (mm²)", "Φάση", "Περιγραφή"].map((h, r) => (
-              <Txt
-                key={h}
-                x={TABLE_LEFT + 8}
-                y={rowY(r) + (r === 5 ? 20 : 17)}
-                size={9}
-                weight="bold"
-              >
-                {h}
-              </Txt>
-            ))}
+            {["Κύκλωμα", "Προστασία", "Κωδ. Hager", "Καλώδιο (mm²)", "Φάση", "Περιγραφή"].map(
+              (h, r) => (
+                <Txt
+                  key={h}
+                  x={TABLE_LEFT + 8}
+                  y={rowY(r) + (r === 5 ? 20 : 17)}
+                  size={9}
+                  weight="bold"
+                >
+                  {h}
+                </Txt>
+              ),
+            )}
             {cfg.circuits.map((c, i) => {
               const x = cx(i);
               return (
@@ -488,18 +495,38 @@ export const Diagram = forwardRef<SVGSVGElement, { cfg: PanelConfig; scale: numb
               </Txt>
             </g>
           ))}
-          <Txt x={tbX + 345} y={tbY + 24} anchor="middle" size={11} weight="bold">
-            ΜΟΝΟΓΡΑΜΜΙΚΟ
-          </Txt>
-          <Txt x={tbX + 345} y={tbY + 38} anchor="middle" size={11} weight="bold">
-            ΔΙΑΓΡΑΜΜΑ
-          </Txt>
-          <Txt x={tbX + 345} y={tbY + 54} anchor="middle" size={8} fill={GREY}>
-            Σύμβολα κατά IEC 60617
-          </Txt>
-          <Txt x={tbX + 345} y={tbY + 68} anchor="middle" size={8} fill={GREY}>
-            Φύλλο 1/1 · Χωρίς κλίμακα
-          </Txt>
+          {stampImage ? (
+            <g>
+              <Txt x={tbX + 345} y={tbY + 12} anchor="middle" size={8} weight="bold">
+                ΣΦΡΑΓΙΔΑ – ΥΠΟΓΡΑΦΗ
+              </Txt>
+              <image
+                href={stampImage}
+                x={tbX + 276}
+                y={tbY + 18}
+                width={138}
+                height={tbH - 24}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                <title>Ψηφιακή σφραγίδα και υπογραφή εγκαταστάτη</title>
+              </image>
+            </g>
+          ) : (
+            <g>
+              <Txt x={tbX + 345} y={tbY + 24} anchor="middle" size={11} weight="bold">
+                ΜΟΝΟΓΡΑΜΜΙΚΟ
+              </Txt>
+              <Txt x={tbX + 345} y={tbY + 38} anchor="middle" size={11} weight="bold">
+                ΔΙΑΓΡΑΜΜΑ
+              </Txt>
+              <Txt x={tbX + 345} y={tbY + 54} anchor="middle" size={8} fill={GREY}>
+                Σύμβολα κατά IEC 60617
+              </Txt>
+              <Txt x={tbX + 345} y={tbY + 68} anchor="middle" size={8} fill={GREY}>
+                Φύλλο 1/1 · Χωρίς κλίμακα
+              </Txt>
+            </g>
+          )}
         </g>
       </svg>
     );

@@ -83,7 +83,16 @@ function CheckRow({ c }: { c: DocCheck }) {
 }
 
 /** Blue rectangular installer stamp, printed next to the signature. */
-export function Stamp({ lines }: { lines: string[] }) {
+export function Stamp({ lines, image = "" }: { lines: string[]; image?: string }) {
+  if (image) {
+    return (
+      <img
+        src={image}
+        alt="Ψηφιακή σφραγίδα και υπογραφή εγκαταστάτη"
+        className="h-[26mm] w-[70mm] object-contain"
+      />
+    );
+  }
   if (!lines.length)
     return <div className="h-[26mm] w-[70mm] border border-dashed border-black/40" />;
   return (
@@ -386,7 +395,7 @@ export function LegacyProtocolDocument({ doc }: { doc: ProtocolDoc }) {
                   Τόπος: {fill(doc.place, 5)} &nbsp; Ημερομηνία: {fill(doc.date, 5)}
                 </p>
                 <div className="mt-1 flex justify-center">
-                  <Stamp lines={doc.stampLines} />
+                  <Stamp lines={doc.stampLines} image={i.stampImage} />
                 </div>
               </Td>
             </tr>
